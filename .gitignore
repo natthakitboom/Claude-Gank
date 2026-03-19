@@ -1,0 +1,25 @@
+# Next.js
+.next/
+out/
+node_modules/
+
+# Environment
+.env.local
+.env
+
+# Database (contains your data)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
