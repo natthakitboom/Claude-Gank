@@ -89,6 +89,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (action === 'revert' && hash) {
     if (!hasGit(workDir)) return NextResponse.json({ error: 'ไม่มี git repo' }, { status: 400 })
+    // Validate hash format — prevent shell injection
+    if (!/^[a-f0-9]{7,40}$/.test(hash)) {
+      return NextResponse.json({ error: 'hash ไม่ถูกต้อง' }, { status: 400 })
+    }
     try {
       // Stash uncommitted changes ก่อน (ป้องกัน work หาย)
       try { execSync('git stash push -m "auto-stash before revert"', { cwd: workDir, stdio: 'pipe' }) } catch {}

@@ -775,20 +775,27 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
   const hasPhase0 = allPhases.some((p: number) => p === 0)
   if (!hasPhase0) {
     const minPhase = Math.min(...allPhases)
-    // advanceProjectPhase() requires phase 0 to be complete before it will fire phase 1+
-    // Since there is no phase 0, we must fire the lowest phase directly right here.
-    setTimeout(() => {
-      const lowestMissions = db.prepare(
-        `SELECT id, title FROM missions WHERE parent_mission_id = ? AND phase = ? AND status IN ('waiting', 'waiting_phase')`
-      ).all(parentMissionId, minPhase) as { id: string; title: string }[]
+    // No race condition: all DB inserts above are synchronous (better-sqlite3).
+    // The missions are already in DB by the time we query here.
+    // Use setImmediate to yield event loop once, then fire — safe with sync SQLite.
+    setImmediate(() => {
+      try {
+        const lowestMissions = db.prepare(
+          `SELECT id, title FROM missions WHERE parent_mission_id = ? AND phase = ? AND status IN ('waiting', 'waiting_phase')`
+        ).all(parentMissionId, minPhase) as { id: string; title: string }[]
 
-      for (const m of lowestMissions) {
-        db.prepare(`UPDATE missions SET status = 'pending' WHERE id = ?`).run(m.id)
-        fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
-          .catch(e => console.error('[tasks] spawn failed for min-phase mission', m.id, e.message))
-        console.log(`[secretary] 🚀 fired Phase ${minPhase} directly: ${m.id} (${m.title})`)
-      }
-    }, 2000)
+        if (lowestMissions.length === 0) {
+          console.warn(`[secretary] ⚠️ No Phase ${minPhase} missions found to fire — may already be running`)
+          return
+        }
+        for (const m of lowestMissions) {
+          db.prepare(`UPDATE missions SET status = 'pending' WHERE id = ?`).run(m.id)
+          fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
+            .catch(e => console.error('[tasks] spawn failed for min-phase mission', m.id, e.message))
+          console.log(`[secretary] 🚀 fired Phase ${minPhase} directly: ${m.id} (${m.title})`)
+        }
+      } catch (e) { console.error('[secretary] min-phase fire error:', e) }
+    })
   }
 
   console.log(`[secretary] spawned ${tasks.length} tasks — Phases: ${Array.from(new Set(allPhases)).sort().join(',')}${hasPhase0 ? ' — Phase 0 fired immediately' : ` — No Phase 0, will fire Phase ${Math.min(...allPhases)} directly`}`)

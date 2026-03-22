@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { FolderOpen, Trash2, Settings, X, CheckCircle, Loader2, Circle, RefreshCw, GitBranch, Code2, Globe, Cpu, Database, Play, Square, ChevronDown, ChevronUp, User, Terminal, RotateCcw } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
+import { parseDemoAccounts } from '@/lib/parseAccounts'
 
 interface Project {
   id: string
@@ -30,69 +31,6 @@ interface Project {
   stuck: number // 1 = has orphaned waiting phase, 0 = ok
 }
 
-// Strip markdown formatting characters (backticks, bold asterisks) from a value
-function stripMd(s: string): string {
-  return s.replace(/[`*_]/g, '').trim()
-}
-
-// Parse demo accounts from integration output
-function parseDemoAccounts(output: string | null): { role: string; email: string; password: string }[] {
-  if (!output) return []
-  const accounts: { role: string; email: string; password: string }[] = []
-  const seen = new Set<string>()
-  const lines = output.split('\n')
-
-  // Pass 1: detect "## Demo Accounts (Password: `xxx`)" header sections
-  // then parse table rows that follow (| Role | Email | ... |)
-  let sectionPassword: string | null = null
-  let tablePasswordColIdx = -1
-  let tableEmailColIdx = -1
-  let tableRoleColIdx = -1
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-
-    // Detect section header with shared password e.g. "## Demo Accounts (Password: `demo1234`)"
-    const headerPass = line.match(/demo accounts?.*password[:\s]+`?([^\s`\n,)]+)`?/i)
-    if (headerPass) {
-      sectionPassword = stripMd(headerPass[1])
-      tablePasswordColIdx = -1; tableEmailColIdx = -1; tableRoleColIdx = -1
-      continue
-    }
-
-    // Detect table header row — map column indices
-    if (line.includes('|')) {
-      const cols = line.split('|').map(c => c.trim().toLowerCase().replace(/[*_`]/g, ''))
-      if (cols.some(c => c === 'email' || c === 'role')) {
-        tableRoleColIdx    = cols.findIndex(c => c === 'role')
-        tableEmailColIdx   = cols.findIndex(c => c === 'email')
-        tablePasswordColIdx = cols.findIndex(c => c === 'password' || c === 'pass')
-        continue
-      }
-      // Separator row (---) — skip
-      if (line.replace(/[\s|:-]/g, '') === '') continue
-
-      // Data row — only if we know email column
-      if (tableEmailColIdx >= 0) {
-        const cells = line.split('|').map(c => stripMd(c))
-        const email = cells[tableEmailColIdx]
-        if (!email || !email.includes('@')) continue
-        const role = tableRoleColIdx >= 0 ? cells[tableRoleColIdx] : '—'
-        const pass = tablePasswordColIdx >= 0 ? cells[tablePasswordColIdx] : (sectionPassword || '—')
-        if (!seen.has(`${role}:${email}`)) { seen.add(`${role}:${email}`); accounts.push({ role, email, password: pass }) }
-        continue
-      }
-    }
-
-    // Pattern: - **Role**: `email` / `password`  OR  - Role: email / password
-    const m1 = line.match(/[-*]\s*\*{0,2}([^*:\n]{2,40})\*{0,2}\s*:\s*`?([^\s/|`]+@[^\s/|`]+)`?\s*[/|]\s*`?([^\s/|`\n]+)`?/)
-    if (m1) {
-      const role = stripMd(m1[1]), email = stripMd(m1[2]), password = stripMd(m1[3])
-      if (!seen.has(`${role}:${email}`)) { seen.add(`${role}:${email}`); accounts.push({ role, email, password }) }
-    }
-  }
-  return accounts
-}
 
 // Parse DB credentials from integration output (fallback when not stored in DB)
 function parseDbCreds(output: string | null): { user: string; pass: string } | null {
@@ -650,7 +588,7 @@ export default function ProjectsPage() {
                   if (p.demo_accounts_json) {
                     try { accounts = JSON.parse(p.demo_accounts_json) } catch {}
                   }
-                  if (accounts.length === 0) accounts = parseDemoAccounts(p.integration_output)
+                  if (accounts.length === 0) accounts = parseDemoAccounts(p.integration_output ?? '')
 
                   // Show scan button for projects with integration_output but no accounts found
                   if (accounts.length === 0) {
