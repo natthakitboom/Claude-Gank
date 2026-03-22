@@ -32,15 +32,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text })}\n\n`))
       }
 
-      send(`$ ${cmd}\n`)
-
       // Kill any previously running process for this project
       if (running.has(params.id)) {
         running.get(params.id)!.kill()
         running.delete(params.id)
       }
 
-      const child = spawn('bash', ['-c', cmd], {
+      // `exec` replaces bash with the command process — signals go directly to docker compose
+      const child = spawn('bash', ['-c', `exec ${cmd}`], {
         cwd,
         env: { ...process.env, FORCE_COLOR: '0', TERM: 'dumb' },
       })

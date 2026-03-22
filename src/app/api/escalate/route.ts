@@ -4,12 +4,13 @@ import { v4 as uuidv4 } from 'uuid'
 
 export const dynamic = 'force-dynamic'
 
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
 const CHIEF_OF_STAFF_ID = 'agent-f0319677'
 
 async function executeAndCollect(missionId: string): Promise<string> {
   let output = ''
   try {
-    const res = await fetch(`http://localhost:3000/api/missions/${missionId}/execute`, { method: 'POST' })
+    const res = await fetch(`${BASE_URL}/api/missions/${missionId}/execute`, { method: 'POST' })
     const reader = res.body?.getReader()
     const decoder = new TextDecoder()
     if (reader) {
@@ -149,7 +150,7 @@ export async function POST(request: Request) {
       missionId,
       escalationLevel + 1
     )
-    fetch(`http://localhost:3000/api/missions/${retryId}/execute`, { method: 'POST' }).catch(() => {})
+    fetch(`${BASE_URL}/api/missions/${retryId}/execute`, { method: 'POST' }).catch((e) => console.error('[escalate] spawn failed for retry mission', retryId, e.message))
     return NextResponse.json({ ok: true, action: 'retry', retryMissionId: retryId, escalationMissionId })
   }
 
@@ -171,7 +172,7 @@ export async function POST(request: Request) {
       VALUES (?, ?, ?, ?, 'high', 'pending', ?, 2)
     `).run(chiefMissionId, `[ESCALATION→CHIEF] ${mission.title}`, chiefDesc, CHIEF_OF_STAFF_ID, missionId)
 
-    fetch(`http://localhost:3000/api/missions/${chiefMissionId}/execute`, { method: 'POST' }).catch(() => {})
+    fetch(`${BASE_URL}/api/missions/${chiefMissionId}/execute`, { method: 'POST' }).catch((e) => console.error('[escalate] spawn failed for chief mission', chiefMissionId, e.message))
     return NextResponse.json({ ok: true, action: 'escalated_to_chief', chiefMissionId, escalationMissionId })
   }
 

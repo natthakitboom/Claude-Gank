@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const CLAUDE_CLI = '/Users/natthakit.s/.local/bin/claude'
+const CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || 'claude'
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const db = getDb()
@@ -77,7 +77,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
           '--dangerously-skip-permissions',
           '--append-system-prompt', systemPrompt,
         ], {
-          env: { ...process.env, HOME: '/Users/natthakit.s' },
+          env: { ...process.env, HOME: process.env.HOME || '/tmp' },
           cwd: '/tmp',
         })
 
@@ -116,11 +116,21 @@ export async function POST(request: Request, { params }: { params: { id: string 
         child.stderr.on('data', () => {})
 
         await new Promise<void>((resolve, reject) => {
+          const killTimer = setTimeout(() => {
+            child.kill('SIGTERM')
+            setTimeout(() => child.kill('SIGKILL'), 3000)
+            reject(new Error('Chat timed out after 5 minutes'))
+          }, 5 * 60 * 1000)
+
           child.on('close', (code) => {
+            clearTimeout(killTimer)
             if (fullOutput.length > 0 || code === 0 || code === null) resolve()
             else reject(new Error(`claude CLI exited with code ${code}`))
           })
-          child.on('error', reject)
+          child.on('error', (err) => {
+            clearTimeout(killTimer)
+            reject(err)
+          })
         })
 
         // Save assistant message

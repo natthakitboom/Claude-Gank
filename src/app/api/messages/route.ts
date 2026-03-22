@@ -24,7 +24,9 @@ export async function GET(request: Request) {
       params.push(agentId, agentId)
     }
 
-    query += ' ORDER BY msg.created_at DESC LIMIT 50'
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50', 10) || 50, 1), 200)
+    query += ` ORDER BY msg.created_at DESC LIMIT ?`
+    params.push(String(limit))
 
     const messages = db.prepare(query).all(...params)
     return NextResponse.json(messages)

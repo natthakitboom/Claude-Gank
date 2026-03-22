@@ -189,6 +189,176 @@ function initializeSchema(db: Database.Database) {
   // Migration: add agent_filter_json if missing
   try { db.exec("ALTER TABLE notification_config ADD COLUMN agent_filter_json TEXT DEFAULT '[]'") } catch {}
 
+  // SDLC config table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sdlc_config (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      config_json TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  // Seed default SDLC config — always update to latest spec
+  db.prepare(`INSERT OR REPLACE INTO sdlc_config (id, config_json, updated_at) VALUES ('default', ?, CURRENT_TIMESTAMP)`).run(JSON.stringify({
+    name: 'Quality-First Multi-Agent SDLC',
+    description: 'Production-grade SDLC with measurable gates, traceability, severity-based QA, security, progressive release, and continuous learning',
+    version: '2.0',
+    entry: {
+      label: 'User Input',
+      description: 'ส่ง project description เข้า /api/orchestra → สร้าง project_id + trace_id',
+      icon: '👤',
+    },
+    secretary: {
+      label: 'Secretary (เลขา)',
+      description: 'Intake, task decomposition, routing, mission bookkeeping, phase coordination — สร้าง ---TASKS--- block พร้อม acceptance criteria',
+      icon: '📋',
+    },
+    phases: [
+      {
+        id: 0, name: 'Kickoff & Triage', icon: '🚀',
+        description: 'สร้าง shared understanding ของ scope, risk, outcomes และ delivery approach',
+        roles: ['Secretary', 'BA', 'UX', 'Tech Lead'],
+        gate: 'Scope defined + Non-goals defined + Assumptions explicit + Success metrics identified',
+        artifacts: ['project_brief.md', 'scope.md', 'non_goals.md', 'assumptions.md', 'risk_register.md', 'success_metrics.md', 'initial_delivery_plan.md'],
+        color: '#ff2d78',
+      },
+      {
+        id: 1, name: 'Analyze & Design', icon: '📐',
+        description: 'สร้าง architecture + requirements ที่ buildable, testable, secure — รวม threat model',
+        roles: ['BA', 'UX', 'Tech Lead', 'Security Reviewer'],
+        gate: 'User stories testable + API/Event contracts drafted + Threat model complete + Test strategy approved + DoD approved',
+        artifacts: ['requirements_spec.md', 'user_stories.md', 'ux_flows.md', 'architecture_decision_record.md', 'api_contracts.yaml', 'data_model.md', 'threat_model.md', 'test_strategy.md', 'definition_of_done.md'],
+        color: '#a855f7',
+      },
+      {
+        id: 2, name: 'Development', icon: '💻',
+        description: 'Implement features พร้อม automated quality checks — N2N enabled, Tech Lead review gate',
+        roles: ['Backend', 'Frontend', 'DevOps', 'Tech Lead'],
+        gate: 'Lint + Typecheck + Build + Unit/Integration/Contract tests pass + No hardcoded secrets + SAST clean + Preview env healthy + Feature flags ready',
+        artifacts: ['source code', 'migrations', 'unit tests', 'integration tests', 'contract tests', 'feature flags', 'preview deployment', 'changelog draft', 'runbook snippets'],
+        color: '#2d7fff',
+      },
+      {
+        id: 3, name: 'QA & Validation', icon: '🧪',
+        description: 'Severity-based QA — P0/P1 block release, P2 needs waiver, no forced close on bug count',
+        roles: ['QA Engineer', 'Backend', 'Frontend', 'Tech Lead', 'Security Reviewer'],
+        gate: '0 open P0 + 0 open P1 + Critical-path E2E pass + Regression pass + Perf smoke OK + Security smoke clean + Release recommendation issued',
+        artifacts: ['test_execution_report.md', 'bug_list.md', 'regression_report.md', 'critical_path_e2e_report.md', 'perf_smoke_report.md', 'security_smoke_report.md', 'release_recommendation.md'],
+        color: '#22c55e',
+      },
+      {
+        id: 4, name: 'Integration & Release Readiness', icon: '🛡️',
+        description: 'ตรวจสอบ operational + procedural readiness — rollback plan, dashboards, runbook',
+        roles: ['Tech Lead', 'DevOps', 'QA', 'Security Reviewer'],
+        gate: 'Staging healthy + Deploy procedure tested + Rollback verified + Dashboards ready + Feature flags configured + Go/No-go recorded',
+        artifacts: ['release_plan.md', 'rollback_plan.md', 'deployment_manifest.md', 'dashboards_and_alerts.md', 'runbook.md', 'go_no_go_checklist.md'],
+        color: '#06b6d4',
+      },
+      {
+        id: 5, name: 'Progressive Release', icon: '🚢',
+        description: 'Release ด้วย canary / phased / blue-green / feature flag — ไม่ full release โดยไม่ verify health',
+        roles: ['DevOps', 'QA', 'Tech Lead'],
+        gate: 'Error rate stable + Latency within budget + Critical path smoke pass + No sustained alarm + Rollback available within minutes',
+        artifacts: ['canary_report.md', 'prod_validation_report.md', 'release_decision_log.md', 'incident_log.md'],
+        color: '#f59e0b',
+      },
+      {
+        id: 6, name: 'Learn & Improve', icon: '🧠',
+        description: 'เก็บ lessons learned, update guardrails, สร้าง reusable patterns สำหรับโปรเจคถัดไป',
+        roles: ['Secretary', 'Tech Lead', 'QA', 'DevOps', 'Chief of Staff'],
+        gate: 'Release result recorded + Major decisions stored + Recurring failure patterns tagged + Checklists updated',
+        artifacts: ['retrospective.md', 'postmortem.md', 'lessons_learned.md', 'updated_guardrails.md', 'reusable_patterns.md', 'memory_snapshot.json'],
+        color: '#64748b',
+      },
+    ],
+    n2n: {
+      enabled: true,
+      description: 'Agent ส่ง ---SEND_TO--- block ได้ — ต้องมี mission context, expected output, dedupe_key, hop_count',
+      maxHops: 3,
+      rules: [
+        'Every SEND_TO must include expected output',
+        'hop_count > 3 → block auto-execute → escalate',
+        'Duplicate dedupe_key → link existing mission',
+        'Child mission cannot silently widen scope',
+        'type="task" updates project state + comms log',
+        'type="message" logs only',
+      ],
+    },
+    escalation: {
+      enabled: true,
+      maxLevel: 2,
+      description: 'Team Leader → Chief of Staff → Max (rollback/redesign/descope). Severity-based, not round-based',
+      rules: [
+        'P0/P1 bugs block release — no override without Chief of Staff waiver',
+        'Repeated critical failure on same path → phase rollback',
+        'Escalation may cut scope, reopen design, or defer release',
+      ],
+    },
+    qaLoop: {
+      enabled: true,
+      maxRounds: 0,
+      description: 'Severity-based — ไม่จำกัด rounds, P0/P1 block release, P2 need waiver, P3/P4 defer ได้',
+      severity: {
+        P0: { label: 'Catastrophic', action: 'Release blocked', examples: 'data loss, security breach, system down' },
+        P1: { label: 'Critical', action: 'Release blocked', examples: 'critical business flow broken' },
+        P2: { label: 'Important', action: 'Requires explicit waiver', examples: 'workaround exists' },
+        P3: { label: 'Minor', action: 'Can defer with owner + due date', examples: 'cosmetic, edge case' },
+        P4: { label: 'Trivial', action: 'Backlog', examples: 'nice-to-have improvement' },
+      },
+    },
+    security: {
+      enabled: true,
+      description: 'Security built-in ไม่ใช่ append later — threat model ใน Phase 1, SAST/scan ใน Phase 2, security smoke ใน Phase 3',
+      rules: [
+        'No secrets in prompts, code, logs, or artifacts',
+        'Minimum necessary permissions for every agent/tool',
+        'Production deploy, destructive migration, auth changes require explicit approval',
+        'Threat model required in Phase 1 for non-trivial features',
+        'Critical/high security findings block release unless formally waived',
+      ],
+    },
+    dor: {
+      label: 'Definition of Ready',
+      description: 'Task ต้องมีครบก่อน execute — ถ้าขาด Secretary ต้อง reject หรือ rewrite',
+      checklist: ['Clear owner', 'Goal', 'Inputs', 'Constraints', 'Acceptance criteria', 'Expected deliverables', 'Dependencies', 'Priority', 'Trace identifiers'],
+    },
+    dod: {
+      label: 'Definition of Done',
+      description: 'Task done เมื่อ deliverables exist + criteria satisfied + evidence attached + state persisted',
+      taskChecklist: ['Deliverables exist', 'Acceptance criteria satisfied', 'Evidence attached', 'State persisted', 'Downstream impact noted', 'Open risks listed', 'Required review completed'],
+      phaseChecklist: ['All mandatory artifacts exist', 'Gate status = pass or approved conditional_pass', 'Blockers resolved or explicitly waived', 'Next phase has enough context to start cleanly'],
+    },
+    memory: {
+      enabled: true,
+      types: [
+        { type: 'execution', description: 'Active mission state, blockers, owner, retry counts', ttl: 'short' },
+        { type: 'project', description: 'Approved requirements, architecture decisions, contracts, release decisions', ttl: 'project lifetime' },
+        { type: 'organizational', description: 'Recurring patterns, reusable templates, preferred gate policies, anti-patterns', ttl: 'long' },
+      ],
+      rules: ['Volatile assumptions must expire or be revalidated', 'Phase-approved artifacts must be versioned and immutable', 'Superseded decisions remain visible with status "replaced"'],
+    },
+    observability: {
+      enabled: true,
+      description: 'ทุก mission + deployment step ต้อง emit logs, metrics, traces',
+      correlationFields: ['trace_id', 'project_id', 'mission_id', 'phase_id', 'owner', 'environment', 'release_version'],
+      dashboards: ['Deployment status', 'Error rate', 'Latency', 'Throughput', 'Failed test trends', 'Open bug severity', 'Canary health', 'Rollback status'],
+    },
+    messageBlocks: [
+      { name: '---TASKS---', description: 'Secretary task dispatch with full mission schema', owner: 'Secretary' },
+      { name: '---SEND_TO---', description: 'Agent-to-agent handoff with context + dedupe_key + hop_count', owner: 'Any Agent' },
+      { name: '---RESULT---', description: 'Agent result report with deliverables + quality checks + risks', owner: 'Any Agent' },
+      { name: '---PHASE_GATE---', description: 'Phase gate report: pass/conditional_pass/fail with evidence', owner: 'Phase Owner' },
+      { name: '---ESCALATE---', description: 'Escalation with severity + evidence + recommended action', owner: 'Any Agent' },
+    ],
+    decisionRules: [
+      'Favor smaller scope when ambiguous',
+      'Favor backward compatibility',
+      'Favor feature flags over risky hard release',
+      'Favor rollback readiness over deploy speed',
+      'Favor explicit artifact over verbal assumption',
+      'Favor escalation over hidden uncertainty',
+    ],
+  }))
+
   // Seed mission templates
   const templateCount = (db.prepare('SELECT COUNT(*) as count FROM mission_templates').get() as { count: number }).count
   if (templateCount === 0) {
@@ -238,18 +408,432 @@ function initializeSchema(db: Database.Database) {
     insertMany(templates)
   }
 
+  // Upsert new tech project context templates (INSERT OR IGNORE = ไม่ทับของเดิม)
+  const upsertTpl = db.prepare(`
+    INSERT OR IGNORE INTO mission_templates (id, name, icon, category, default_agent_id, title_template, description_template, variables_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const techTemplates = [
+    {
+      id: 'tpl-webapp',
+      name: 'Web Application',
+      icon: '🌐',
+      category: 'tech',
+      agent: null,
+      title: 'สร้าง Web App: {project_name}',
+      desc: [
+        '📌 ชื่อโปรเจค: {project_name}',
+        '📦 ประเภท: Web Application',
+        '🛠️ Tech Stack: Next.js 14 + TypeScript + Tailwind CSS + PostgreSQL + Docker',
+        '',
+        '🎯 เป้าหมาย:',
+        '{goal}',
+        '',
+        '🎨 Design:',
+        '- โทนสี / สไตล์: {color_style}  ← เช่น dark modern / light minimal / colorful playful / corporate clean',
+        '- เว็บตัวอย่างที่ชอบ: {reference_sites}  ← ระบุ URL หรือชื่อ หรือ "ให้ระบบช่วยคิด"',
+        '- Responsive: รองรับ Mobile + Desktop',
+        '',
+        '👥 ผู้ใช้งาน & Access:',
+        '- Roles: {user_roles}  ← เช่น Admin / User / Guest หรือ "ให้ระบบช่วยคิด"',
+        '- Login: {login_type}  ← email+password / Google / Facebook / LINE / ไม่มี',
+        '- สมัครสมาชิก: {register_type}  ← เปิดสาธารณะ / invite-only / admin สร้างให้',
+        '',
+        '🌐 ภาษา: {languages}  ← Thai / English / ทั้งสองภาษา',
+        '💱 สกุลเงิน: {currency}  ← THB / USD / ไม่มี',
+        '',
+        '🔗 Integrations:',
+        '- Payment: {payment}  ← PromptPay / Credit Card / Omise / Stripe / ไม่มี',
+        '- Notification: {notification}  ← Email / LINE Notify / SMS / ไม่มี',
+        '- Third-party APIs: {third_party}  ← ระบุ หรือ ไม่มี',
+        '',
+        '📈 จำนวน User คาดการณ์: {expected_users}  ← <100 / 100-1,000 / 1,000+',
+        '🔍 SEO: {seo}  ← ต้องการ / ไม่ต้องการ',
+        '🚀 Deploy: {deploy_target}  ← Vercel / VPS / Railway / AWS / ยังไม่แน่ใจ',
+        '',
+        '✅ Features หลัก:',
+        '{features}',
+        '',
+        '🚫 ไม่รวม (Out of Scope):',
+        '{out_of_scope}',
+        '',
+        '📋 Accept เมื่อ:',
+        '{acceptance_criteria}',
+      ].join('\n'),
+      vars: '["project_name","goal","color_style","reference_sites","user_roles","login_type","register_type","languages","currency","payment","notification","third_party","expected_users","seo","deploy_target","features","out_of_scope","acceptance_criteria"]',
+    },
+    {
+      id: 'tpl-api',
+      name: 'REST API / Backend',
+      icon: '🔌',
+      category: 'tech',
+      agent: null,
+      title: 'สร้าง API: {project_name}',
+      desc: [
+        '📌 ชื่อโปรเจค: {project_name}',
+        '📦 ประเภท: REST API / Backend Service',
+        '🛠️ Tech Stack: Node.js + TypeScript + Express + PostgreSQL + Docker',
+        '🔐 Authentication: {auth_method}',
+        '',
+        '🎯 เป้าหมาย:',
+        '{goal}',
+        '',
+        '📡 Endpoints หลัก:',
+        '{endpoints}',
+        '',
+        '🚫 Out of Scope: {out_of_scope}',
+        '',
+        '📋 Accept เมื่อ:',
+        '{acceptance_criteria}',
+      ].join('\n'),
+      vars: '["project_name","auth_method","goal","endpoints","out_of_scope","acceptance_criteria"]',
+    },
+    {
+      id: 'tpl-automation',
+      name: 'Automation / Bot',
+      icon: '🤖',
+      category: 'tech',
+      agent: null,
+      title: 'สร้าง Automation: {project_name}',
+      desc: [
+        '📌 ชื่อโปรเจค: {project_name}',
+        '📦 ประเภท: Automation / Bot / Script',
+        '🛠️ Tech Stack: Python 3 + Schedule/Celery + Docker',
+        '',
+        '🎯 เป้าหมาย:',
+        '{goal}',
+        '',
+        '⚙️ กระบวนการ / Trigger:',
+        '{process}',
+        '',
+        '📤 Output ที่ต้องการ:',
+        '{output}',
+        '',
+        '⏰ ความถี่: {frequency}',
+        '🚫 Out of Scope: {out_of_scope}',
+        '',
+        '📋 Accept เมื่อ:',
+        '{acceptance_criteria}',
+      ].join('\n'),
+      vars: '["project_name","goal","process","output","frequency","out_of_scope","acceptance_criteria"]',
+    },
+    {
+      id: 'tpl-mobile',
+      name: 'Mobile App',
+      icon: '📱',
+      category: 'tech',
+      agent: null,
+      title: 'สร้าง Mobile App: {project_name}',
+      desc: [
+        '📌 ชื่อโปรเจค: {project_name}',
+        '📦 ประเภท: Mobile Application',
+        '🛠️ Framework: React Native + TypeScript + Expo',
+        '📲 Platform: {platform}',
+        '',
+        '🎯 เป้าหมาย:',
+        '{goal}',
+        '',
+        '✅ Features หลัก:',
+        '{features}',
+        '',
+        '🔐 Authentication: {auth_method}',
+        '🗄️ Backend/API: {backend}',
+        '',
+        '🚫 Out of Scope: {out_of_scope}',
+        '',
+        '📋 Accept เมื่อ:',
+        '{acceptance_criteria}',
+      ].join('\n'),
+      vars: '["project_name","platform","goal","features","auth_method","backend","out_of_scope","acceptance_criteria"]',
+    },
+    {
+      id: 'tpl-data-pipeline',
+      name: 'Data Pipeline',
+      icon: '📊',
+      category: 'tech',
+      agent: null,
+      title: 'สร้าง Data Pipeline: {project_name}',
+      desc: [
+        '📌 ชื่อโปรเจค: {project_name}',
+        '📦 ประเภท: Data Pipeline / ETL / Analytics',
+        '🛠️ Tech Stack: Python 3 + Pandas + PostgreSQL + Docker',
+        '',
+        '🎯 เป้าหมาย:',
+        '{goal}',
+        '',
+        '📥 Data Sources:',
+        '{data_sources}',
+        '',
+        '🔄 การประมวลผล:',
+        '{processing}',
+        '',
+        '📤 Output / Dashboard:',
+        '{output}',
+        '',
+        '⏰ ความถี่อัปเดต: {frequency}',
+        '🚫 Out of Scope: {out_of_scope}',
+        '',
+        '📋 Accept เมื่อ:',
+        '{acceptance_criteria}',
+      ].join('\n'),
+      vars: '["project_name","goal","data_sources","processing","output","frequency","out_of_scope","acceptance_criteria"]',
+    },
+  ]
+  const insertTechTpls = db.transaction((tpls: typeof techTemplates) => {
+    for (const t of tpls) {
+      upsertTpl.run(t.id, t.name, t.icon, t.category, t.agent, t.title, t.desc, t.vars)
+    }
+  })
+  insertTechTpls(techTemplates)
+
   // Migrations for new columns
   try { db.exec(`ALTER TABLE missions ADD COLUMN scheduled_at TEXT`) } catch {}
   try { db.exec(`ALTER TABLE missions ADD COLUMN job_id TEXT`) } catch {}
   try { db.exec(`ALTER TABLE missions ADD COLUMN parent_mission_id TEXT REFERENCES missions(id)`) } catch {}
   try { db.exec(`ALTER TABLE missions ADD COLUMN escalation_level INTEGER DEFAULT 0`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN phase INTEGER DEFAULT 0`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN qa_round INTEGER DEFAULT 0`) } catch {}
+
+  // ── New SDLC fields ────────────────────────────────────────────────────────
+  try { db.exec(`ALTER TABLE missions ADD COLUMN trace_id TEXT`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN hop_count INTEGER DEFAULT 0`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN dedupe_key TEXT`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN retry_count INTEGER DEFAULT 0`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN version INTEGER DEFAULT 1`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN risk_level TEXT DEFAULT 'low'`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN owner TEXT`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN goal TEXT`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN acceptance_criteria_json TEXT DEFAULT '[]'`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN deliverables_json TEXT DEFAULT '[]'`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN constraints_json TEXT DEFAULT '[]'`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN dependencies_json TEXT DEFAULT '[]'`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN gate_status TEXT`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN gate_evidence_json TEXT`) } catch {}
+  try { db.exec(`ALTER TABLE missions ADD COLUMN is_leader INTEGER DEFAULT 0`) } catch {}
   try { db.exec(`ALTER TABLE agents ADD COLUMN is_leader INTEGER DEFAULT 0`) } catch {}
+  // Project access info
+  try { db.exec(`ALTER TABLE projects ADD COLUMN db_user TEXT`) } catch {}
+  try { db.exec(`ALTER TABLE projects ADD COLUMN db_password TEXT`) } catch {}
+  // Demo accounts JSON (parsed from Phase 4 output)
+  try { db.exec(`ALTER TABLE projects ADD COLUMN demo_accounts_json TEXT`) } catch {}
+  // IDE chat history
+  try { db.exec(`
+    CREATE TABLE IF NOT EXISTS ide_chat_messages (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      agent_id TEXT,
+      agent_name TEXT,
+      role TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `) } catch {}
+  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_ide_chat_project ON ide_chat_messages(project_id, created_at)`) } catch {}
   // Mark team leaders
   try {
     db.exec(`UPDATE agents SET is_leader = 1 WHERE id IN ('agent-a435cfbb', 'agent-07f02e89', 'agent-creative', 'agent-accountant')`)
   } catch {}
 
   seedInitialData(db)
+
+  // ── Ensure new TECH agents exist (INSERT OR IGNORE = idempotent) ────────────
+  const upsertAgent = db.prepare(`
+    INSERT OR IGNORE INTO agents (id, name, role, team, model, personality, system_prompt, effort, sprite, color, skills_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const newTechAgents = [
+    {
+      id: 'agent-ux-designer',
+      name: 'UX Designer',
+      role: 'UX / Product Designer',
+      team: 'TECH',
+      model: 'claude-sonnet-4-6',
+      personality: 'เน้น user empathy คิดแบบ human-centered ละเอียดเรื่อง usability',
+      system_prompt: `คุณคือ UX / Product Designer ที่เชี่ยวชาญด้าน user research, information architecture, wireframing, prototyping และ usability testing
+
+ความเชี่ยวชาญ:
+- User research & persona building
+- Journey mapping & service blueprint
+- Wireframe, lo-fi & hi-fi prototype
+- Design system & component library
+- Usability heuristics (Nielsen's 10)
+- A/B testing & analytics interpretation
+- Accessibility (WCAG 2.1 AA)
+- Tools: Figma, FigJam, Maze, Hotjar
+
+เมื่อรับงาน:
+1. ระบุ user goal และ pain point ก่อน
+2. เสนอ design approach + rationale
+3. สร้าง wireframe concept ด้วย ASCII/text diagram ถ้าทำได้
+4. ระบุ success metric ของ design
+
+ตอบภาษาไทย ยกเว้น technical term ให้ใช้ภาษาอังกฤษ`,
+      effort: 'high',
+      sprite: '🎨',
+      color: '#a855f7',
+      skills_json: '["ux-research", "wireframing", "prototyping", "design-system", "usability-testing"]'
+    },
+    {
+      id: 'agent-security',
+      name: 'Security Engineer',
+      role: 'Security / DevSecOps',
+      team: 'TECH',
+      model: 'claude-sonnet-4-6',
+      personality: 'paranoid โดยธรรมชาติ มองหา attack surface รักความปลอดภัย zero-trust mindset',
+      system_prompt: `คุณคือ Security Engineer / DevSecOps ที่เชี่ยวชาญด้าน application security, infrastructure security และ secure development lifecycle
+
+ความเชี่ยวชาญ:
+- OWASP Top 10 & CWE/CVE analysis
+- Threat modeling (STRIDE, PASTA, DREAD)
+- SAST/DAST/SCA tool integration
+- Secrets management (Vault, AWS Secrets Manager)
+- Zero-trust architecture & least privilege
+- Container & Kubernetes security
+- Penetration testing concepts
+- Security code review
+- Compliance: SOC2, ISO27001, PDPA, GDPR concepts
+- Incident response playbook
+
+เมื่อ review งาน:
+1. ระบุ threat surface และ attack vector
+2. จัดระดับความเสี่ยง (Critical/High/Medium/Low)
+3. เสนอ mitigation ที่ปฏิบัติได้จริง
+4. ระบุ security test cases ที่ควรเพิ่ม
+
+ตอบภาษาไทย ยกเว้น security term ให้ใช้ภาษาอังกฤษ`,
+      effort: 'high',
+      sprite: '🛡️',
+      color: '#ef4444',
+      skills_json: '["threat-modeling", "security-review", "sast-dast", "penetration-testing", "compliance"]'
+    },
+    {
+      id: 'agent-product-owner',
+      name: 'Product Owner',
+      role: 'Product Owner / Product Manager',
+      team: 'TECH',
+      model: 'claude-sonnet-4-6',
+      personality: 'customer-obsessed ชั่งน้ำหนัก tradeoff เก่ง focus on outcome ไม่ใช่ output',
+      system_prompt: `คุณคือ Product Owner / Product Manager ที่เชี่ยวชาญด้านการกำหนด product vision, prioritization และ delivery roadmap
+
+ความเชี่ยวชาญ:
+- Product vision & strategy
+- OKR และ success metric definition
+- Backlog refinement & prioritization (RICE, MoSCoW, WSJF)
+- User story writing (Given/When/Then)
+- Acceptance criteria & Definition of Done
+- Stakeholder management & communication
+- Agile/Scrum ceremonies facilitation
+- Product analytics & data-driven decision
+- Competitive analysis & market positioning
+- Go-to-market planning
+
+เมื่อรับงาน:
+1. ตั้งคำถาม "Why?" ก่อนเสมอ — understand the problem
+2. ระบุ user persona ที่ได้ประโยชน์
+3. กำหนด success metric ที่วัดได้
+4. สร้าง acceptance criteria ที่ชัดเจน
+5. ระบุ dependencies และ risks
+
+ตอบภาษาไทย ยกเว้น product term ให้ใช้ภาษาอังกฤษ`,
+      effort: 'high',
+      sprite: '📋',
+      color: '#22c55e',
+      skills_json: '["product-strategy", "backlog-management", "stakeholder-alignment", "okr-definition", "user-stories"]'
+    },
+    {
+      id: 'agent-sre',
+      name: 'SRE Engineer',
+      role: 'SRE / Platform Engineer',
+      team: 'TECH',
+      model: 'claude-sonnet-4-6',
+      personality: 'ชอบ automate ทุกอย่าง error budget mindset ไม่ยอม manual toil',
+      system_prompt: `คุณคือ Site Reliability Engineer / Platform Engineer ที่เชี่ยวชาญด้าน reliability, scalability และ developer experience
+
+ความเชี่ยวชาญ:
+- SLI/SLO/SLA definition & error budget
+- Observability: metrics, logs, traces (Prometheus, Grafana, Loki, Tempo, OpenTelemetry)
+- Incident management & postmortem
+- Infrastructure as Code (Terraform, Pulumi)
+- CI/CD pipeline design (GitHub Actions, ArgoCD)
+- Kubernetes: HPA, PDB, resource quotas, networking
+- Service mesh (Istio, Linkerd)
+- Chaos engineering & game day
+- Platform engineering & Internal Developer Platform (IDP)
+- Cost optimization & FinOps basics
+
+เมื่อรับงาน:
+1. ถามหา reliability requirement (SLO target คืออะไร?)
+2. ระบุ failure mode ที่เป็นไปได้
+3. เสนอ observability checklist
+4. ออกแบบ runbook และ alert rules
+5. คำนวณ error budget ถ้ามีข้อมูล
+
+ตอบภาษาไทย ยกเว้น technical term ให้ใช้ภาษาอังกฤษ`,
+      effort: 'high',
+      sprite: '⚡',
+      color: '#06b6d4',
+      skills_json: '["slo-sli-sla", "observability", "incident-response", "infrastructure-as-code", "kubernetes"]'
+    },
+  ]
+  for (const agent of newTechAgents) {
+    upsertAgent.run(
+      agent.id, agent.name, agent.role, agent.team, agent.model,
+      agent.personality, agent.system_prompt, agent.effort, agent.sprite,
+      agent.color, agent.skills_json
+    )
+  }
+
+  // ── Upgrade system prompts for existing agents (idempotent UPDATE) ──────────
+  const upgradePrompts: Array<{ id: string; system_prompt: string }> = [
+    {
+      id: 'agent-sysadmin',
+      system_prompt: `คุณคือผู้ดูแลระบบอาวุโส (System Administrator) ที่เชี่ยวชาญด้าน Linux, Docker, Kubernetes, Nginx, PostgreSQL และ Cloud Services
+
+ความเชี่ยวชาญ:
+- ติดตั้งและกำหนดค่า server, service และ infrastructure
+- Monitoring & logging (Prometheus, Grafana, ELK Stack, Loki)
+- Security hardening: firewall, SSL/TLS, fail2ban, access control
+- Backup & disaster recovery strategy
+- Shell scripting (Bash, Python) สำหรับ automation
+- Cloud: AWS/GCP/Azure resource management
+- Container orchestration: Docker Compose, Kubernetes
+
+เมื่อรับงาน:
+1. ระบุ OS/environment ที่เกี่ยวข้องก่อน
+2. ให้คำสั่ง terminal ที่รันได้จริง พร้อม comment อธิบาย
+3. สร้าง config file ที่ production-ready
+4. ระบุ path ที่บันทึกไฟล์และ dependency ที่ต้องติดตั้งก่อน
+5. แจ้ง security implication ที่ควรระวัง
+
+ตอบภาษาไทย พร้อม code block สำหรับทุก command และ config file`,
+    },
+    {
+      id: 'agent-automation',
+      system_prompt: `คุณคือวิศวกร Automation ที่เชี่ยวชาญการสร้าง workflow อัตโนมัติและ system integration
+
+ความเชี่ยวชาญ:
+- CI/CD pipelines: GitHub Actions, GitLab CI, Jenkins
+- Workflow automation: n8n, Zapier, Make (Integromat)
+- Scripting: Python, Bash, Node.js สำหรับ task automation
+- API integration, webhook design และ event-driven architecture
+- Task scheduling: cron, queue systems (BullMQ, Celery, RabbitMQ)
+- No-code/Low-code tools สำหรับ business process automation
+- Testing automation: pytest, Playwright, k6
+
+เมื่อรับงาน:
+1. วิเคราะห์ process ปัจจุบันและระบุ repetitive steps ที่ automate ได้
+2. เสนอ automation approach พร้อม tradeoff ของแต่ละวิธี
+3. เขียน script ที่มี error handling, retry logic และ logging ครบ
+4. สร้าง workflow diagram (Mermaid) สำหรับ flow ที่ซับซ้อน
+5. ระบุ trigger, condition และ failure scenario ให้ชัดเจน
+
+ตอบภาษาไทย พร้อม code block และ diagram สำหรับ workflow`,
+    },
+  ]
+  const updatePrompt = db.prepare(`UPDATE agents SET system_prompt = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND length(system_prompt) < 300`)
+  for (const { id, system_prompt } of upgradePrompts) {
+    updatePrompt.run(system_prompt, id)
+  }
 }
 
 function seedInitialData(db: Database.Database) {
@@ -296,7 +880,25 @@ function seedInitialData(db: Database.Database) {
       team: 'TECH',
       model: 'claude-haiku-4-5-20251001',
       personality: 'ระมัดระวัง รักความปลอดภัย ชอบ automate ทุกอย่าง',
-      system_prompt: 'คุณคือผู้ดูแลระบบที่มีประสบการณ์ด้าน Linux, Docker, Kubernetes และ Cloud Services คุณให้ความสำคัญกับ security และ reliability ตอบภาษาไทยพร้อมคำสั่ง terminal ที่ชัดเจน',
+      system_prompt: `คุณคือผู้ดูแลระบบอาวุโส (System Administrator) ที่เชี่ยวชาญด้าน Linux, Docker, Kubernetes, Nginx, PostgreSQL และ Cloud Services
+
+ความเชี่ยวชาญ:
+- ติดตั้งและกำหนดค่า server, service และ infrastructure
+- Monitoring & logging (Prometheus, Grafana, ELK Stack, Loki)
+- Security hardening: firewall, SSL/TLS, fail2ban, access control
+- Backup & disaster recovery strategy
+- Shell scripting (Bash, Python) สำหรับ automation
+- Cloud: AWS/GCP/Azure resource management
+- Container orchestration: Docker Compose, Kubernetes
+
+เมื่อรับงาน:
+1. ระบุ OS/environment ที่เกี่ยวข้องก่อน
+2. ให้คำสั่ง terminal ที่รันได้จริง พร้อม comment อธิบาย
+3. สร้าง config file ที่ production-ready
+4. ระบุ path ที่บันทึกไฟล์และ dependency ที่ต้องติดตั้งก่อน
+5. แจ้ง security implication ที่ควรระวัง
+
+ตอบภาษาไทย พร้อม code block สำหรับทุก command และ config file`,
       effort: 'normal',
       sprite: '🖥️',
       color: '#06b6d4',
@@ -309,7 +911,25 @@ function seedInitialData(db: Database.Database) {
       team: 'TECH',
       model: 'claude-haiku-4-5-20251001',
       personality: 'สร้างสรรค์ หา shortcut เก่ง ชอบประหยัดเวลา',
-      system_prompt: 'คุณคือวิศวกร automation ที่เชี่ยวชาญด้าน workflow automation, scripting, API integration และ no-code/low-code tools คุณหาวิธีทำให้กระบวนการทำงานอัตโนมัติและมีประสิทธิภาพสูงสุด ตอบภาษาไทย',
+      system_prompt: `คุณคือวิศวกร Automation ที่เชี่ยวชาญการสร้าง workflow อัตโนมัติและ system integration
+
+ความเชี่ยวชาญ:
+- CI/CD pipelines: GitHub Actions, GitLab CI, Jenkins
+- Workflow automation: n8n, Zapier, Make (Integromat)
+- Scripting: Python, Bash, Node.js สำหรับ task automation
+- API integration, webhook design และ event-driven architecture
+- Task scheduling: cron, queue systems (BullMQ, Celery, RabbitMQ)
+- No-code/Low-code tools สำหรับ business process automation
+- Testing automation: pytest, Playwright, k6
+
+เมื่อรับงาน:
+1. วิเคราะห์ process ปัจจุบันและระบุ repetitive steps ที่ automate ได้
+2. เสนอ automation approach พร้อม tradeoff ของแต่ละวิธี
+3. เขียน script ที่มี error handling, retry logic และ logging ครบ
+4. สร้าง workflow diagram (Mermaid) สำหรับ flow ที่ซับซ้อน
+5. ระบุ trigger, condition และ failure scenario ให้ชัดเจน
+
+ตอบภาษาไทย พร้อม code block และ diagram สำหรับ workflow`,
       effort: 'normal',
       sprite: '⚙️',
       color: '#10b981',
@@ -460,8 +1080,8 @@ function seedInitialData(db: Database.Database) {
     },
   ]
 
-  const insertMany = db.transaction((agents: typeof agents) => {
-    for (const agent of agents) {
+  const insertMany = db.transaction((items: typeof agents) => {
+    for (const agent of items) {
       insertAgent.run(
         agent.id, agent.name, agent.role, agent.team, agent.model,
         agent.personality, agent.system_prompt, agent.effort, agent.sprite,
@@ -528,8 +1148,8 @@ function seedInitialData(db: Database.Database) {
     },
   ]
 
-  const insertSkillMany = db.transaction((skills: typeof skills) => {
-    for (const skill of skills) {
+  const insertSkillMany = db.transaction((items: typeof skills) => {
+    for (const skill of items) {
       insertSkill.run(skill.id, skill.name, skill.description, skill.prompt_template, skill.category, skill.icon)
     }
   })

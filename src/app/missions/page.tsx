@@ -8,7 +8,7 @@ const TEAM_CAT_CLASS: Record<string, string> = { CORE: 'cat-core', TECH: 'cat-te
 const TEAM_DISPLAY: Record<string, string> = { CORE: 'CORE', TECH: 'TECH', CREATIVE: 'CREATIVE', BUSINESS: 'BIZ', FINANCE: 'FINANCE' }
 const TPL_CAT_COLOR: Record<string, string> = { creative: '#a855f7', business: '#22c55e', tech: '#2d7fff', finance: '#f59e0b', general: '#64748b' }
 
-type MissionRow = Mission & { agent_name: string; agent_sprite: string; agent_color: string; agent_team: string; parent_mission_id?: string | null }
+type MissionRow = Mission & { agent_name: string; agent_sprite: string; agent_color: string; agent_team: string; parent_mission_id?: string | null; phase?: number }
 
 interface MissionTemplate {
   id: string; name: string; icon: string; category: string; default_agent_id: string
@@ -28,6 +28,7 @@ export default function MissionsPage() {
   const [filterDate, setFilterDate] = useState('all')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showTeamModal, setShowTeamModal] = useState(false)
+  const [showTeamTplPicker, setShowTeamTplPicker] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [templates, setTemplates] = useState<MissionTemplate[]>([])
   const [tplVars, setTplVars] = useState<Record<string, string>>({})
@@ -135,6 +136,14 @@ export default function MissionsPage() {
     const i = setInterval(fetchMissions, 3000)
     return () => clearInterval(i)
   }, [fetchMissions])
+  // Phase orphan watchdog: call scheduler every 30s so stuck projects self-heal
+  // even when no new missions are being executed
+  useEffect(() => {
+    const ping = () => fetch('/api/scheduler').catch(() => {})
+    ping() // immediate on mount
+    const i = setInterval(ping, 30_000)
+    return () => clearInterval(i)
+  }, [])
   useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight }, [streamOutput])
 
   const createMission = async () => {
@@ -241,8 +250,8 @@ export default function MissionsPage() {
     setSelectedIds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
-  const statusColor = (s: string) => s === 'done' ? '#22c55e' : s === 'running' ? '#2d7fff' : s === 'failed' ? '#ef4444' : '#374151'
-  const statusBg = (s: string) => s === 'done' ? 'rgba(34,197,94,0.15)' : s === 'running' ? 'rgba(45,127,255,0.15)' : s === 'failed' ? 'rgba(239,68,68,0.15)' : '#111820'
+  const statusColor = (s: string) => s === 'done' ? '#22c55e' : s === 'running' ? '#2d7fff' : s === 'failed' ? '#ef4444' : s === 'waiting' || s === 'waiting_phase' ? '#f59e0b' : s === 'waiting_retest' ? '#a855f7' : '#374151'
+  const statusBg = (s: string) => s === 'done' ? 'rgba(34,197,94,0.15)' : s === 'running' ? 'rgba(45,127,255,0.15)' : s === 'failed' ? 'rgba(239,68,68,0.15)' : s === 'waiting' || s === 'waiting_phase' ? 'rgba(245,158,11,0.15)' : s === 'waiting_retest' ? 'rgba(168,85,247,0.15)' : '#111820'
   const prioColor = (p: string) => p === 'urgent' ? '#ef4444' : p === 'high' ? '#f59e0b' : '#374151'
 
   const pendingCount = missions.filter(m => m.status === 'pending').length
@@ -284,7 +293,7 @@ export default function MissionsPage() {
             </button>
             {selectedIds.size > 0 && (
               <button
-                onClick={() => batchExecute([...selectedIds])}
+                onClick={() => batchExecute(Array.from(selectedIds))}
                 className="font-orbitron px-2 py-1 rounded text-xs"
                 style={{ background: 'rgba(45,127,255,0.15)', border: '1px solid #2d7fff44', color: '#2d7fff', fontSize: '8px' }}
               >
@@ -379,12 +388,13 @@ export default function MissionsPage() {
                       <div className="flex items-center gap-1 flex-wrap">
                         {isParent && <span className="font-orbitron px-1 py-0.5 rounded" style={{ fontSize: '6px', background: 'rgba(168,85,247,0.2)', color: '#a855f7', border: '1px solid rgba(168,85,247,0.3)' }}>PROJECT</span>}
                         {isSub && <span style={{ fontSize: '9px', color: '#374151' }}>↳</span>}
+                        {isSub && (m as any).phase != null && <span className="font-orbitron px-1 py-0.5 rounded" style={{ fontSize: '6px', background: ['rgba(168,85,247,0.15)','rgba(59,130,246,0.15)','rgba(16,185,129,0.15)','rgba(245,158,11,0.15)','rgba(239,68,68,0.15)'][(m as any).phase] || '#111', color: ['#a855f7','#3b82f6','#10b981','#f59e0b','#ef4444'][(m as any).phase] || '#666', border: `1px solid ${['rgba(168,85,247,0.3)','rgba(59,130,246,0.3)','rgba(16,185,129,0.3)','rgba(245,158,11,0.3)','rgba(239,68,68,0.3)'][(m as any).phase] || '#333'}` }}>P{(m as any).phase}</span>}
                         <span className="text-xs font-medium text-white truncate">{m.title}</span>
                       </div>
                       <div className="font-orbitron truncate" style={{ fontSize: '8px', color: '#374151' }}>{m.agent_name}</div>
                       <div className="flex items-center gap-1.5 mt-1.5">
                         <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '8px', background: statusBg(m.status), color: statusColor(m.status) }}>
-                          {isBatchRunning && m.status !== 'running' ? 'QUEUED' : m.status.toUpperCase()}
+                          {isBatchRunning && m.status !== 'running' ? 'QUEUED' : m.status === 'waiting_phase' ? 'WAITING' : m.status === 'waiting_retest' ? 'RETEST' : m.status.toUpperCase()}
                         </span>
                         <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '8px', background: '#111820', color: prioColor(m.priority) }}>
                           {m.priority.toUpperCase()}
@@ -524,14 +534,63 @@ export default function MissionsPage() {
             <div className="p-5 space-y-4">
               {!deployResult ? (
                 <>
+                  {/* Context Template Picker */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>CONTEXT TEMPLATE</label>
+                      <button
+                        onClick={() => setShowTeamTplPicker(v => !v)}
+                        className="font-orbitron px-2 py-0.5 rounded transition-all"
+                        style={{ fontSize: '7px', background: showTeamTplPicker ? 'rgba(45,127,255,0.2)' : '#111820', border: `1px solid ${showTeamTplPicker ? '#2d7fff44' : '#1a2535'}`, color: showTeamTplPicker ? '#2d7fff' : '#374151', letterSpacing: '0.05em' }}
+                      >
+                        {showTeamTplPicker ? '▲ HIDE' : '▼ PICK TEMPLATE'}
+                      </button>
+                    </div>
+                    {showTeamTplPicker && (
+                      <div className="mb-2 p-2 rounded-lg" style={{ background: '#080a0f', border: '1px solid #111820' }}>
+                        {/* Category tabs */}
+                        {['tech', 'business', 'creative', 'finance'].map(cat => {
+                          const catTpls = templates.filter(t => t.category === cat)
+                          if (catTpls.length === 0) return null
+                          return (
+                            <div key={cat} className="mb-2">
+                              <div className="font-orbitron mb-1" style={{ fontSize: '7px', color: TPL_CAT_COLOR[cat] || '#374151', letterSpacing: '0.1em' }}>{cat.toUpperCase()}</div>
+                              <div className="flex flex-wrap gap-1">
+                                {catTpls.map(tpl => (
+                                  <button
+                                    key={tpl.id}
+                                    onClick={() => {
+                                      // Pre-fill textarea with structured template (variables shown as [varname])
+                                      let desc = tpl.description_template
+                                      const vars: string[] = JSON.parse(tpl.variables_json || '[]')
+                                      for (const v of vars) {
+                                        desc = desc.replaceAll(`{${v}}`, `[${v}]`)
+                                      }
+                                      setTeamForm(f => ({ ...f, description: desc }))
+                                      setShowTeamTplPicker(false)
+                                    }}
+                                    className="font-orbitron px-2 py-1 rounded transition-all"
+                                    style={{ fontSize: '8px', background: `${TPL_CAT_COLOR[cat] || '#374151'}15`, border: `1px solid ${TPL_CAT_COLOR[cat] || '#374151'}30`, color: TPL_CAT_COLOR[cat] || '#374151', letterSpacing: '0.03em' }}
+                                  >
+                                    {tpl.icon} {tpl.name}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>งานที่ต้องการ</label>
                     <textarea
-                      rows={5}
-                      placeholder="อธิบายงานที่ต้องการให้ทีมทำ เช่น&#10;สร้างระบบ login สำหรับลูกค้า ต้องการ email/password + JWT token&#10;มี remember me, forgot password, และ rate limiting"
+                      rows={7}
+                      placeholder="อธิบายงานที่ต้องการให้ทีมทำ หรือเลือก Template ด้านบน&#10;&#10;เช่น สร้าง Web App ขาย e-commerce&#10;Tech Stack: Next.js + PostgreSQL&#10;Features: product listing, cart, checkout"
                       value={teamForm.description}
                       onChange={(e) => setTeamForm(f => ({ ...f, description: e.target.value }))}
                       className="gank-input resize-none"
+                      style={{ minHeight: 140 }}
                     />
                   </div>
                   <div>
@@ -579,12 +638,12 @@ export default function MissionsPage() {
                   >
                     {deploying ? 'กำลังวิเคราะห์...' : '🏢 DEPLOY TO TEAM'}
                   </button>
-                  <button onClick={() => { setShowTeamModal(false); setDeployResult(null) }} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b' }}>
+                  <button onClick={() => { setShowTeamModal(false); setDeployResult(null); setShowTeamTplPicker(false) }} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b' }}>
                     CANCEL
                   </button>
                 </>
               ) : (
-                <button onClick={() => { setShowTeamModal(false); setDeployResult(null); setTeamForm({ description: '', priority: 'high' }) }} className="flex-1 btn-deploy">
+                <button onClick={() => { setShowTeamModal(false); setDeployResult(null); setTeamForm({ description: '', priority: 'high' }); setShowTeamTplPicker(false) }} className="flex-1 btn-deploy">
                   ดูผลลัพธ์
                 </button>
               )}

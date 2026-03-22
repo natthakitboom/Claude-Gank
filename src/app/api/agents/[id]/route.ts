@@ -34,8 +34,10 @@ export async function GET(request: Request, { params }: { params: { id: string }
         FROM chats WHERE agent_id = ?
       `).get(params.id) as Record<string, number>
 
-      const successRate = stats.total_missions > 0
-        ? Math.round(((stats.done_missions as number) / (stats.total_missions as number)) * 100)
+      const totalMissions = Number(stats.total_missions) || 0
+      const doneMissions = Number(stats.done_missions) || 0
+      const successRate = totalMissions > 0
+        ? Math.round((doneMissions / totalMissions) * 100)
         : 0
 
       // Estimate cost: Haiku ~$0.25/M input + $1.25/M output, Sonnet ~$3/M + $15/M, Opus ~$15/M + $75/M
@@ -70,13 +72,15 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const db = getDb()
 
     const allowed = ['name', 'role', 'team', 'model', 'personality', 'system_prompt', 'effort', 'sprite', 'color', 'status', 'skills_json']
-    const updates = Object.entries(body)
-      .filter(([key]) => allowed.includes(key))
-      .map(([key, value]) => `${key} = '${String(value).replace(/'/g, "''")}'`)
+    const entries = Object.entries(body).filter(([key]) => allowed.includes(key))
 
-    if (updates.length === 0) return NextResponse.json({ error: 'No valid fields' }, { status: 400 })
+    if (entries.length === 0) return NextResponse.json({ error: 'No valid fields' }, { status: 400 })
 
-    db.prepare(`UPDATE agents SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(params.id)
+    // Use parameterized placeholders for values — column names are allowlisted above so safe to inline
+    const setClauses = entries.map(([key]) => `${key} = ?`).join(', ')
+    const values = entries.map(([, value]) => value)
+
+    db.prepare(`UPDATE agents SET ${setClauses}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...values, params.id)
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(params.id)
     return NextResponse.json(agent)
   } catch (error) {

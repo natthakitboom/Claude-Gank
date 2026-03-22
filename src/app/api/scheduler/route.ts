@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from 'uuid'
 
 export const dynamic = 'force-dynamic'
 
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+
 export async function GET() {
   const db = getDb()
 
@@ -20,8 +22,8 @@ export async function GET() {
   `).all() as any[]
 
   for (const m of due) {
-    fetch(`http://localhost:3000/api/missions/${m.id}/execute`, { method: 'POST' })
-      .catch(() => {})
+    fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
+      .catch((e) => console.error('[scheduler] spawn failed for scheduled mission', m.id, e.message))
   }
 
   // 2. Fire recurring jobs that are due
@@ -48,8 +50,39 @@ export async function GET() {
     `).run(nextRun, job.id)
 
     // Fire the mission
-    fetch(`http://localhost:3000/api/missions/${missionId}/execute`, { method: 'POST' })
-      .catch(() => {})
+    fetch(`${BASE_URL}/api/missions/${missionId}/execute`, { method: 'POST' })
+      .catch((e) => console.error('[scheduler] spawn failed for recurring job', missionId, e.message))
+  }
+
+  // 3. Phase orphan rescue — detect waiting/waiting_phase missions whose previous phase is done
+  //    Runs every time scheduler is called so projects never get stuck even with no active missions
+  const orphaned = db.prepare(`
+    SELECT m.id, m.title, m.phase, m.parent_mission_id
+    FROM missions m
+    WHERE m.status IN ('waiting_phase', 'waiting')
+      AND m.parent_mission_id IS NOT NULL
+      AND m.phase > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM missions prev
+        WHERE prev.parent_mission_id = m.parent_mission_id
+          AND prev.phase = m.phase - 1
+          AND prev.status NOT IN ('done', 'failed')
+      )
+      AND EXISTS (
+        SELECT 1 FROM missions prev
+        WHERE prev.parent_mission_id = m.parent_mission_id
+          AND prev.phase = m.phase - 1
+      )
+  `).all() as { id: string; title: string; phase: number; parent_mission_id: string }[]
+
+  for (const m of orphaned) {
+    console.log(`[scheduler/orphan] 🔄 Phase orphan: "${m.title.slice(0, 50)}" (phase ${m.phase}) — re-triggering`)
+    db.prepare(`UPDATE missions SET status = 'pending' WHERE id = ?`).run(m.id)
+    fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
+      .catch((e) => console.error(`[scheduler/orphan] re-trigger failed for ${m.id}:`, e.message))
+  }
+  if (orphaned.length > 0) {
+    console.log(`[scheduler/orphan] ✅ Rescued ${orphaned.length} orphaned phase mission(s)`)
   }
 
   // Upcoming one-time scheduled missions
