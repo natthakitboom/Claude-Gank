@@ -33,7 +33,8 @@ export async function GET(request: Request) {
       params.push(term, term, term)
     }
     if (dateRange === 'today') {
-      query += " AND m.created_at >= date('now', 'start of day')"
+      // Use last 24 hours to avoid timezone issues (SQLite uses UTC internally)
+      query += " AND m.created_at >= datetime('now', '-24 hours')"
     } else if (dateRange === 'week') {
       query += " AND m.created_at >= date('now', '-7 days')"
     } else if (dateRange === 'month') {
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
     // auto_run: true → fire execute immediately in background (fire-and-forget)
     if (body.auto_run) {
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
-      fetch(`${baseUrl}/api/missions/${id}/execute`, { method: 'POST' }).catch(() => {})
+      fetch(`${baseUrl}/api/missions/${id}/execute`, { method: 'POST' }).catch((e) => console.error('[auto_run] spawn failed for mission', id, e.message))
     }
 
     return NextResponse.json(mission, { status: 201 })

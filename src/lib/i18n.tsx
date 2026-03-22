@@ -9,9 +9,11 @@ const translations = {
     // Sidebar
     nav_agents: 'AGENTS',
     nav_warroom: 'WAR ROOM',
+    nav_monitor: 'MONITOR',
     nav_comms: 'COMMS',
     nav_missions: 'MISSIONS',
     nav_projects: 'PROJECTS',
+    nav_sdlc: 'SDLC',
     nav_schedule: 'SCHEDULE',
     nav_system: 'SYSTEM',
     collapse: 'COLLAPSE',
@@ -136,9 +138,11 @@ const translations = {
     // Sidebar
     nav_agents: 'ทีมงาน',
     nav_warroom: 'ห้องรบ',
+    nav_monitor: 'มอนิเตอร์',
     nav_comms: 'สื่อสาร',
     nav_missions: 'ภารกิจ',
     nav_projects: 'โปรเจค',
+    nav_sdlc: 'ขั้นตอน',
     nav_schedule: 'ตารางงาน',
     nav_system: 'ระบบ',
     collapse: 'ย่อ',

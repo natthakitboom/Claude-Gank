@@ -20,7 +20,7 @@ export interface Mission {
   title: string
   description: string
   agent_id: string
-  status: 'pending' | 'running' | 'done' | 'failed'
+  status: 'pending' | 'running' | 'done' | 'failed' | 'waiting' | 'waiting_phase' | 'waiting_retest'
   priority: 'low' | 'normal' | 'high' | 'urgent'
   output: string | null
   error: string | null

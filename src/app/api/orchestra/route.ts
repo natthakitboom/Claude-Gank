@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
+import { matchAgent } from '@/lib/agents'
 import { v4 as uuidv4 } from 'uuid'
 import fs from 'fs'
 import path from 'path'
@@ -8,13 +9,16 @@ import path from 'path'
 // Structure: Claude Gank/projects/{projectId}/  (sibling of multi-agent-dashboard/)
 const PROJECTS_BASE = process.env.PROJECTS_BASE_DIR ||
   path.join(process.cwd(), '..', 'projects')
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
 
 export const dynamic = 'force-dynamic'
 
 // Find เลขา agent (CORE coordinator, not Chief of Staff)
 function getSecretaryId(db: any): string | null {
   const agent = db.prepare(`
-    SELECT id FROM agents WHERE team = 'CORE' AND name LIKE '%เลขา%' LIMIT 1
+    SELECT id FROM agents WHERE team = 'CORE'
+      AND (name LIKE '%เลขา%' OR name LIKE '%Secretary%' OR role LIKE '%Coordinator%' OR role LIKE '%coordinator%')
+    LIMIT 1
   `).get() as any
   if (agent) return agent.id
   // fallback: first CORE agent that is not Chief of Staff
@@ -34,41 +38,6 @@ function buildRoster(agents: any[]): string {
   return Object.entries(groups).map(([team, members]) =>
     `## ทีม ${team}\n` + members.map(a => `- ${a.name} (${a.role}) [id: ${a.id}]`).join('\n')
   ).join('\n\n')
-}
-
-// Match task agent_name to actual agent by fuzzy name/role search
-function matchAgent(agents: any[], agentName: string): any | null {
-  const q = agentName.toLowerCase()
-  // exact name match first
-  let match = agents.find(a => a.name.toLowerCase() === q)
-  if (match) return match
-  // partial name match
-  match = agents.find(a => a.name.toLowerCase().includes(q) || q.includes(a.name.toLowerCase()))
-  if (match) return match
-  // role match
-  match = agents.find(a => a.role.toLowerCase().includes(q) || q.includes(a.role.toLowerCase()))
-  if (match) return match
-  // keyword matching for common roles
-  const keywords: Record<string, string[]> = {
-    'front': ['front', 'ui', 'react', 'ux'],
-    'back': ['back', 'api', 'database', 'server'],
-    'qa': ['qa', 'test', 'quality'],
-    'devops': ['devops', 'deploy', 'infra', 'docker'],
-    'ba': ['analyst', 'business', 'requirement'],
-    'tech lead': ['lead', 'architect', 'senior'],
-    'pm': ['project', 'manager', 'scrum'],
-    'ux': ['ux', 'design', 'ui', 'user experience'],
-    'writer': ['writer', 'document', 'technical'],
-  }
-  for (const [key, kws] of Object.entries(keywords)) {
-    if (kws.some(k => q.includes(k))) {
-      match = agents.find(a =>
-        kws.some(k => a.name.toLowerCase().includes(k) || a.role.toLowerCase().includes(k))
-      )
-      if (match) return match
-    }
-  }
-  return null
 }
 
 export async function POST(request: Request) {
@@ -157,7 +126,7 @@ ${roster}
   // 6. Execute and collect output
   let output = ''
   try {
-    const execRes = await fetch(`http://localhost:3000/api/missions/${parentId}/execute`, { method: 'POST' })
+    const execRes = await fetch(`${BASE_URL}/api/missions/${parentId}/execute`, { method: 'POST' })
     const reader = execRes.body?.getReader()
     const decoder = new TextDecoder()
     if (reader) {
@@ -213,7 +182,7 @@ ${roster}
     subMissions.push({ id: subId, title: task.title, agent_id: agent.id, agent_name: agent.name })
 
     // Fire execute (non-blocking)
-    fetch(`http://localhost:3000/api/missions/${subId}/execute`, { method: 'POST' }).catch(() => {})
+    fetch(`${BASE_URL}/api/missions/${subId}/execute`, { method: 'POST' }).catch((e) => console.error('[orchestra] spawn failed for sub-mission', subId, e.message))
   }
 
   // Update project name from เลขา's parsed output if available

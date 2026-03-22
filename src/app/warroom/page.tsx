@@ -286,7 +286,7 @@ export default function WarRoomPage() {
             priority: 'normal',
             auto_run: true,
           }),
-        }).catch(() => {})
+        }).catch((e) => console.error('[warroom] skill update mission create failed for', agent.name, e.message))
       ))
 
       setLearnState('done')
@@ -350,6 +350,23 @@ export default function WarRoomPage() {
           <p className="font-orbitron mt-1" style={{ fontSize: '10px', color: '#374151', letterSpacing: '0.1em' }}>{t('warroom_subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
+          {stats.workingAgents > 0 && (
+            <Link
+              href="/monitor"
+              className="flex items-center gap-1.5 font-orbitron px-3 py-1.5 rounded transition-all"
+              style={{
+                fontSize: '9px',
+                background: 'rgba(16,185,129,0.12)',
+                color: '#10b981',
+                border: '1px solid rgba(16,185,129,0.35)',
+                letterSpacing: '0.05em',
+                textDecoration: 'none',
+              }}
+            >
+              <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#10b981' }} />
+              {stats.workingAgents} ACTIVE — ดูหน้า MONITOR →
+            </Link>
+          )}
           {unreadAlerts > 0 && (
             <span className="font-orbitron px-2 py-1 rounded" style={{ fontSize: '8px', background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}>
               ⚠️ {unreadAlerts} ALERTS

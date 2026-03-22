@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 export const dynamic = 'force-dynamic'
 
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
 const SUPERVISOR_AGENT_ID = 'agent-f0319677'
 
 // GET — return current alerts (messages with type='alert')
@@ -95,7 +96,7 @@ ${memoryContext}
   // Fire and wait for output (use streaming execute)
   let output = ''
   try {
-    const execRes = await fetch(`http://localhost:3000/api/missions/${missionId}/execute`, {
+    const execRes = await fetch(`${BASE_URL}/api/missions/${missionId}/execute`, {
       method: 'POST',
     })
 
@@ -148,7 +149,7 @@ ${memoryContext}
           INSERT INTO missions (id, title, description, agent_id, priority, status)
           VALUES (?, ?, ?, ?, 'high', 'pending')
         `).run(newId, action.title, action.description, action.agent_id)
-        fetch(`http://localhost:3000/api/missions/${newId}/execute`, { method: 'POST' }).catch(() => {})
+        fetch(`${BASE_URL}/api/missions/${newId}/execute`, { method: 'POST' }).catch((e) => console.error('[supervisor] spawn failed for mission', newId, e.message))
         results.push(`retry: ${newId}`)
       }
 
@@ -172,7 +173,9 @@ ${memoryContext}
         )
         results.push(`alert: ${msgId}`)
       }
-    } catch {}
+    } catch (err) {
+      console.error('[supervisor] action execution failed:', action.type, err)
+    }
   }
 
   return NextResponse.json({ ok: true, missionId, issues: stuck.length + failed.length, actionsExecuted: results.length, results })
