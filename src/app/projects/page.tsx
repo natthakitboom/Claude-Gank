@@ -481,12 +481,12 @@ export default function ProjectsPage() {
                     )}
                     {p.adminer_port && (
                       <a
-                        href={`http://localhost:${p.adminer_port}/?pgsql=db&username=property_user&db=property_platform`}
+                        href={`http://localhost:${p.adminer_port}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105"
                         style={{ background: '#0d0030', border: '1px solid #a855f740', color: '#a855f7' }}
-                        title={`DB Viewer — localhost:${p.adminer_port}`}
+                        title={`CloudBeaver — localhost:${p.adminer_port}`}
                       >
                         <Database size={11} />
                         DB :{p.adminer_port}
@@ -755,12 +755,12 @@ export default function ProjectsPage() {
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="font-orbitron text-xs text-gray-500 block mb-1" style={{ fontSize: '9px' }}>DB Admin Port</label>
+                    <label className="font-orbitron text-xs text-gray-500 block mb-1" style={{ fontSize: '9px' }}>CloudBeaver Port</label>
                     <input
                       type="number"
                       className="w-full rounded px-3 py-2 text-xs font-mono text-white"
                       style={{ background: '#070b10', border: '1px solid #1a2535', outline: 'none' }}
-                      placeholder="8080"
+                      placeholder="8978"
                       value={pathForm.adminer_port}
                       onChange={e => setPathForm(f => ({ ...f, adminer_port: e.target.value }))}
                     />

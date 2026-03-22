@@ -31,18 +31,28 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
       { cwd: workDir }
     ).toString().trim()
 
-    // Get tags mapped to full commit hashes
-    const tagsRaw = execSync('git tag -l --sort=-creatordate', { cwd: workDir }).toString().trim()
+    // Get tags mapped to full commit hashes — single git call, O(1).
+    // %(objectname) = tag-object hash for annotated tags, commit hash for lightweight.
+    // %(*objectname) = dereferenced commit hash for annotated tags (empty for lightweight).
+    // We pick %(*objectname) when present (annotated), else %(objectname) (lightweight).
     const tagHashMap: Record<string, string[]> = {}
-    if (tagsRaw) {
-      for (const tag of tagsRaw.split('\n').filter(Boolean)) {
-        try {
-          const fullHash = execSync(`git rev-list -n 1 ${tag}`, { cwd: workDir }).toString().trim()
-          if (!tagHashMap[fullHash]) tagHashMap[fullHash] = []
-          tagHashMap[fullHash].push(tag)
-        } catch {}
+    try {
+      const tagLines = execSync(
+        'git tag -l --format=%(objectname) %(*objectname) %(refname:short)',
+        { cwd: workDir }
+      ).toString().trim()
+      for (const tl of tagLines.split('\n').filter(Boolean)) {
+        // Split on whitespace, filter empty tokens (empty %(*objectname) collapses)
+        const parts = tl.trim().split(/\s+/).filter(Boolean)
+        if (parts.length < 2) continue
+        const tag = parts[parts.length - 1]  // always last
+        // annotated tag: [tagObjHash, commitHash, tagName] → use parts[1]
+        // lightweight tag: [commitHash, tagName] → use parts[0]
+        const commitHash = parts.length >= 3 ? parts[1] : parts[0]
+        if (!tagHashMap[commitHash]) tagHashMap[commitHash] = []
+        tagHashMap[commitHash].push(tag)
       }
-    }
+    } catch {}
 
     const log = raw
       ? raw.split('\n').map(line => {

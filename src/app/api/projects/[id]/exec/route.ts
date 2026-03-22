@@ -6,6 +6,21 @@ import fs from 'fs'
 
 export const dynamic = 'force-dynamic'
 
+// Commands that could damage the host system outside the project work_dir.
+// This is an internal dev tool (localhost) so we use a targeted denylist rather
+// than a full allowlist, preserving flexibility for docker/npm/git/etc.
+const BLOCKED_PATTERNS = [
+  /rm\s+(-\S*\s+)*\/(\s|$)/,             // rm targeting filesystem root
+  /rm\s+(-\S*\s+)*~\//,                   // rm targeting home directory
+  /:\(\)\s*\{\s*:\|:/,                    // fork bomb
+  />\s*\/dev\/(sd|hd|nvme|vd)\w*/,       // writing to block devices
+  /(mkfs|fdisk|parted)\s/,               // filesystem formatting tools
+  /\bdd\b.*\bof=\/dev\//,                // dd to block device
+  /(shutdown|reboot|halt|poweroff)\b/,   // power/system control
+  /\bpasswd\b/,                          // password changes
+  /(visudo|sudoers)/,                    // sudo config
+]
+
 // Running processes per project { projectId -> { pid, kill } }
 const running = new Map<string, { pid?: number; kill: () => void }>()
 
@@ -18,6 +33,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const { cmd } = await req.json()
   if (!cmd || typeof cmd !== 'string') return new Response('cmd required', { status: 400 })
+
+  // Block commands that could damage the host system
+  if (BLOCKED_PATTERNS.some(p => p.test(cmd))) {
+    return new Response('Command blocked for safety', { status: 403 })
+  }
 
   const cwd = project.work_dir
   if (!fs.existsSync(cwd)) fs.mkdirSync(cwd, { recursive: true })
@@ -44,9 +64,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         env: { ...process.env, FORCE_COLOR: '0', TERM: 'dumb' },
       })
 
+      // SIGTERM first, then SIGKILL after 3s if still alive (mirrors mission timeout handler)
       running.set(params.id, {
         pid: child.pid,
-        kill: () => { try { child.kill('SIGTERM') } catch {} },
+        kill: () => {
+          try { child.kill('SIGTERM') } catch {}
+          setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 3000)
+        },
       })
 
       child.stdout.on('data', (d: Buffer) => send(d.toString()))

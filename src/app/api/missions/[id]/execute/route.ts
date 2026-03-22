@@ -1,5 +1,6 @@
 import { spawn, execSync } from 'child_process'
-import { getDb } from '@/lib/db'
+import os from 'os'
+import { getDb, ensureColumn } from '@/lib/db'
 import { v4 as uuidv4 } from 'uuid'
 import { autoNotify } from '@/lib/notify'
 import { matchAgent } from '@/lib/agents'
@@ -10,13 +11,12 @@ import { parseDemoAccounts, parseDemoAccountsJson } from '@/lib/parseAccounts'
 function gitInitProject(workDir: string, projectName: string) {
   const fs = require('fs')
   const path = require('path')
+  // Skip entirely if repo already exists — gitAutoCommit handles ongoing commits
+  if (fs.existsSync(path.join(workDir, '.git'))) return
   try {
-    // Init repo ถ้ายังไม่มี
-    if (!fs.existsSync(path.join(workDir, '.git'))) {
-      execSync('git init', { cwd: workDir, stdio: 'pipe' })
-      execSync('git config user.email "agent@claudegank.local"', { cwd: workDir, stdio: 'pipe' })
-      execSync('git config user.name "Claude Gank"', { cwd: workDir, stdio: 'pipe' })
-    }
+    execSync('git init', { cwd: workDir, stdio: 'pipe' })
+    execSync('git config user.email "agent@claudegank.local"', { cwd: workDir, stdio: 'pipe' })
+    execSync('git config user.name "Claude Gank"', { cwd: workDir, stdio: 'pipe' })
     // .gitignore
     const gitignorePath = path.join(workDir, '.gitignore')
     if (!fs.existsSync(gitignorePath)) {
@@ -38,22 +38,21 @@ function gitInitProject(workDir: string, projectName: string) {
 function gitAutoCommit(workDir: string, missionTitle: string, agentName: string, phase?: number, tagLabel?: string) {
   const fs = require('fs')
   const path = require('path')
+  if (!workDir || !fs.existsSync(path.join(workDir, '.git'))) return
   try {
-    if (!workDir || !fs.existsSync(path.join(workDir, '.git'))) return
-
-    // Ensure git user config always set (in case project was moved or config missing)
+    // Ensure git user config — log failure explicitly
     try {
       execSync('git config user.email "agent@claudegank.local"', { cwd: workDir, stdio: 'pipe' })
       execSync('git config user.name "Claude Gank"', { cwd: workDir, stdio: 'pipe' })
-    } catch {}
+    } catch (e: any) {
+      console.error('[git] config error (commits may fail):', e.message)
+    }
 
     execSync('git add -A', { cwd: workDir, stdio: 'pipe' })
 
-    // Check if there's actually anything to commit
     const status = execSync('git status --porcelain', { cwd: workDir }).toString().trim()
-    if (!status) return // nothing changed
+    if (!status) return
 
-    // Count changed files for commit message stats
     const fileCount = status.split('\n').filter(Boolean).length
     const phasePrefix = phase !== undefined ? `[Phase ${phase}] ` : ''
     const msg = `${phasePrefix}[${agentName}] ${missionTitle.slice(0, 60)} (${fileCount} files)`
@@ -61,14 +60,14 @@ function gitAutoCommit(workDir: string, missionTitle: string, agentName: string,
     execSync(`git commit -m ${JSON.stringify(msg)}`, { cwd: workDir, stdio: 'pipe' })
     console.log(`[git] 💾 Auto-commit: ${msg}`)
 
-    // Tag milestone commits (Phase complete)
     if (tagLabel) {
       try {
-        // Use timestamp suffix to avoid duplicate tag names
         const ts = Date.now().toString(36)
         execSync(`git tag ${JSON.stringify(`${tagLabel}-${ts}`)}`, { cwd: workDir, stdio: 'pipe' })
         console.log(`[git] 🏷️ Tagged: ${tagLabel}-${ts}`)
-      } catch {}
+      } catch (e: any) {
+        console.error('[git] tag error:', e.message)
+      }
     }
   } catch (e: any) {
     console.error('[git] auto-commit error:', e.message)
@@ -130,15 +129,13 @@ function setupProjectDocker(workDir: string, projectName: string) {
       sh -c "npx prisma db push --accept-data-loss 2>/dev/null || true && npm run dev"
 
   # ─── DB Admin UI ───────────────────────────────────────────────
-  adminer:
-    image: adminer:latest
-    container_name: ${slug}-adminer
+  cloudbeaver:
+    image: dbeaver/cloudbeaver:latest
+    container_name: ${slug}-cloudbeaver
     restart: unless-stopped
     depends_on: [db]
     ports:
-      - "8080:8080"
-    environment:
-      ADMINER_DEFAULT_SERVER: db
+      - "8978:8978"
 
 volumes:
   db_data:
@@ -413,18 +410,21 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
 
   if (siblings.length === 0) return
 
-  // Group by phase
+  // Group by phase — skip NULL-phase missions (N2N tasks, unphased helpers)
+  // null phase → Number(null) = 0, which would corrupt Phase 0 gate checks
   const phases: Record<number, any[]> = {}
   for (const s of siblings) {
+    if (s.phase === null || s.phase === undefined) continue
     if (!phases[s.phase]) phases[s.phase] = []
     phases[s.phase].push(s)
   }
 
   const phaseNumbers = Object.keys(phases).map(Number).sort((a, b) => a - b)
 
-  // Safety net: if lowest phase has all waiting_phase (no phase 0 fired), fire it directly
+  // Safety net: if lowest phase has all waiting_phase (no phase 0 fired), fire it directly.
+  // Only triggers when phase 0 truly doesn't exist (no missions at phase < lowestPhase).
   const lowestPhase = phaseNumbers[0]
-  if (lowestPhase !== undefined && lowestPhase > 0) {
+  if (lowestPhase !== undefined && lowestPhase > 0 && !phases[0]) {
     const lowestMissions = phases[lowestPhase]
     const allWaiting = lowestMissions.every((m: any) => m.status === 'waiting' || m.status === 'waiting_phase')
     if (allWaiting) {
@@ -445,6 +445,12 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
     // Check if this phase is complete (all done or failed)
     const allDone = phaseMissions.every((m: any) => m.status === 'done' || m.status === 'failed')
     if (!allDone) continue
+
+    // Warn when advancing from a phase where every mission failed — QA will run on broken code
+    const allFailed = phaseMissions.every((m: any) => m.status === 'failed')
+    if (allFailed) {
+      console.warn(`[phase] ⚠️ Phase ${phase} — ALL missions failed, advancing anyway. Next phase may receive no output.`)
+    }
 
     // Find next phase
     const nextPhase = phaseNumbers[i + 1]
@@ -476,9 +482,10 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
         }
 
         if (hasCriticalBugs && qaRound >= 2) {
-          // Escalate — max retries exceeded
+          // Escalate — max retries exceeded. Tech Lead escalation handles next steps.
+          // Return immediately to avoid race where Phase 4 fires in parallel with escalation.
           escalateQAFailure(db, parentMissionId, latestQA)
-          // Still advance to Phase 4 so Tech Lead can attempt final integration
+          return
         }
       }
     }
@@ -705,7 +712,7 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
   if (!existingProject && isDevProject) {
     const projectId = `project-${uuidv4().slice(0, 8)}`
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30)
-    workDir = `/private/tmp/${slug}-${projectId.slice(8, 16)}`
+    workDir = `${os.tmpdir()}/${slug}-${projectId.slice(8, 16)}`
     try {
       dockerComposePath = setupProjectDocker(workDir, name)
     } catch (e) {
@@ -735,7 +742,51 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
       ? `\n\n---\n## 📁 Work Directory (บันทึกไฟล์ทั้งหมดที่นี่)\n\`${workDir}\`\n\nDocker Compose: \`${dockerComposePath || workDir + '/docker-compose.yml'}\`\n---\n`
       : ''
 
-    const fullDescription = workDirCtx + task.description
+    // For [INTEGRATION] tasks: always append ACCESS-INFO requirement so any agent outputs it
+    // Gather used ports: from DB + actual system ports via lsof
+    let usedPortsInfo = ''
+    let suggestedWebPort = 3001
+    let suggestedAdminerPort = 8978
+    if (isIntegration) {
+      try {
+        // 1. Ports from existing projects in DB
+        const existingPorts = db.prepare(`SELECT web_port, adminer_port FROM projects WHERE web_port IS NOT NULL OR adminer_port IS NOT NULL`).all() as { web_port: number | null; adminer_port: number | null }[]
+        const dbWebPorts = existingPorts.map(p => p.web_port).filter(Boolean) as number[]
+        const dbAdminPorts = existingPorts.map(p => p.adminer_port).filter(Boolean) as number[]
+
+        // 2. Actual listening ports on the system (lsof)
+        const { execSync } = require('child_process')
+        let listeningPorts: number[] = []
+        try {
+          const lsofOut = execSync("lsof -iTCP -sTCP:LISTEN -nP 2>/dev/null | awk '{print $9}' | grep ':' | sed 's/.*://' | sort -un", { encoding: 'utf-8', timeout: 5000 })
+          listeningPorts = lsofOut.trim().split('\n').map(Number).filter((p: number) => p >= 1024 && p <= 65535)
+        } catch {}
+
+        // Combine all occupied ports
+        const allUsedPorts = new Set([3000, ...dbWebPorts, ...dbAdminPorts, ...listeningPorts])
+
+        // Find next available web port (3001+)
+        suggestedWebPort = 3001
+        while (allUsedPorts.has(suggestedWebPort)) suggestedWebPort++
+
+        // Find next available cloudbeaver port (8978+)
+        suggestedAdminerPort = 8978
+        while (allUsedPorts.has(suggestedAdminerPort)) suggestedAdminerPort++
+
+        // Find next available DB port (5432+)
+        let suggestedDbPort = 5432
+        while (allUsedPorts.has(suggestedDbPort)) suggestedDbPort++
+
+        usedPortsInfo = `\n\n⚠️ Port ที่ถูกใช้งานแล้วบนเครื่อง (ห้ามซ้ำ): [${Array.from(allUsedPorts).sort((a: number, b: number) => a - b).filter((p: number) => p >= 3000 && p <= 9000).join(', ')}]`
+        usedPortsInfo += `\n✅ Port ว่างแนะนำ: web=${suggestedWebPort}, adminer=${suggestedAdminerPort}, db=${suggestedDbPort}`
+      } catch {}
+    }
+
+    const integrationRequirement = isIntegration
+      ? `\n\n---\n## 🔌 บังคับ: Access Info Output (ต้องมีครบทุกครั้ง)\n\nทุกโปรเจคต้องมี **3 services** ใน docker-compose.yml และ output ครบทุกค่า:\n1. **Web App** — frontend/backend ที่ผู้ใช้เข้าถึง (Dockerfile build)\n2. **CloudBeaver** — DB admin UI (image: dbeaver/cloudbeaver:latest, port 8978)\n3. **PostgreSQL** — database (image: postgres:16-alpine)\n\nเมื่อ integration เสร็จและ Docker containers พร้อมแล้ว **ต้อง** output block นี้ก่อน Release Notes เสมอ:\n\n\`\`\`\n---ACCESS-INFO---\n{\n  "web_port": <HOST port ของ web app จาก docker-compose ports ฝั่งซ้าย>,\n  "adminer_port": <HOST port ของ Adminer จาก docker-compose ports ฝั่งซ้าย>,\n  "db_user": "<POSTGRES_USER จาก environment>",\n  "db_password": "<POSTGRES_PASSWORD จาก environment>"\n}\n---END---\n\`\`\`\n\n🚨 กฎบังคับ:\n- **web_port, adminer_port, db_user, db_password ต้องมีค่าทุกฟิลด์ — ห้าม null หรือ missing**\n- ใช้ค่าจริงจาก docker-compose.yml (ports: "HOST:CONTAINER" → ใช้ HOST port เท่านั้น)\n- **ห้ามใช้ port 3000** (ระบบหลักใช้อยู่แล้ว)\n- ก่อนกำหนด port ต้องตรวจสอบว่าว่างจริง${usedPortsInfo}\n- docker-compose.yml **ต้องมี web service** ที่ build จาก Dockerfile\n- docker-compose.yml **ต้องมี cloudbeaver service** (image: dbeaver/cloudbeaver:latest, port 8978)\n- docker-compose.yml **ต้องมี postgres service** พร้อม POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB\n- ถ้า services ไม่ครบ → ต้องเพิ่มก่อน แล้ว build ใหม่\n\n## 🔐 บังคับ: Demo Accounts & Seed Data\nหลัง containers ขึ้นแล้ว ต้องรัน seed data เพื่อสร้าง demo accounts สำหรับทดสอบ login:\n1. ตรวจสอบว่ามี seed script (prisma/seed.ts หรือ scripts/seed.ts หรือ src/db/seed.ts)\n2. รัน seed: \`DATABASE_URL="..." npx tsx prisma/seed.ts\` หรือ \`docker exec <web_container> node seed.js\`\n3. ยืนยัน login สำเร็จด้วย curl: \`curl -X POST http://localhost:<web_port>/api/auth/login -H "Content-Type: application/json" -d '{"email":"...","password":"..."}'\`\n4. **ต้อง output demo accounts** ใน ---ACCESS-INFO--- block ด้วย field "demo_accounts":\n\`\`\`\n---ACCESS-INFO---\n{\n  "web_port": <port>,\n  "adminer_port": <port>,\n  "db_user": "<user>",\n  "db_password": "<pass>",\n  "demo_accounts": [\n    {"role": "Admin", "email": "admin@demo.com", "password": "demo1234"},\n    {"role": "User", "email": "user@demo.com", "password": "demo1234"}\n  ]\n}\n---END---\n\`\`\`\n- ถ้าไม่มี seed script → สร้าง users ผ่าน API register หรือ insert SQL โดยตรง\n- **ต้องทดสอบ login จริงทุกครั้งก่อน report เสร็จ**\n---\n`
+      : ''
+
+    const fullDescription = workDirCtx + task.description + integrationRequirement
 
     // Determine phase from task (Secretary should include "phase" in output)
     let phase = task.phase != null ? task.phase : -1
@@ -817,22 +868,31 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
 //   ---END---
 
 function handleSendTo(db: any, sourceMissionId: string, mission: any, output: string) {
-  const blockMatch = output.match(/---SEND_TO---\s*([\s\S]*?)---END---/)
-  if (!blockMatch) return
+  // Process ALL ---SEND_TO--- blocks — not just the first one
+  const blockRegex = /---SEND_TO---\s*([\s\S]*?)---END---/g
+  let blockMatch: RegExpExecArray | null
+  while ((blockMatch = blockRegex.exec(output)) !== null) {
+    _handleSingleSendTo(db, sourceMissionId, mission, output, blockMatch[1])
+  }
+}
 
+function _handleSingleSendTo(db: any, sourceMissionId: string, mission: any, fullOutput: string, blockContent: string) {
   let payload: any
   try {
-    payload = JSON.parse(blockMatch[1].trim())
+    payload = JSON.parse(blockContent.trim())
   } catch {
-    console.error('[n2n] Failed to parse SEND_TO block:', blockMatch[1])
+    console.error('[n2n] Failed to parse SEND_TO block:', blockContent.slice(0, 200))
     return
   }
 
-  const { to, type = 'message', title, message, auto_execute = true, hop_count = 0, dedupe_key, expected_output } = payload
+  const { to, type = 'message', title, message, auto_execute = true, hop_count, dedupe_key, expected_output } = payload
   if (!to || !message) return
 
-  // Hop count safety: block auto-execute if too many hops
-  const currentHopCount = hop_count || (mission as any).hop_count || 0
+  // Use the HIGHER of agent-reported hop_count and DB-stored value.
+  // Prevents agents from bypassing the limit by writing "hop_count": 0 in output.
+  const dbHopCount: number = (mission as any).hop_count || 0
+  const payloadHopCount: number = typeof hop_count === 'number' ? hop_count : 0
+  const currentHopCount = Math.max(payloadHopCount, dbHopCount)
   const maxHops = 3
   if (currentHopCount >= maxHops) {
     console.warn(`[n2n] ⚠️ hop_count ${currentHopCount} >= max ${maxHops} — blocking auto-execute, escalating`)
@@ -870,7 +930,7 @@ function handleSendTo(db: any, sourceMissionId: string, mission: any, output: st
     const parentId = (mission as any).parent_mission_id || sourceMissionId
     const taskTitle = title || `[N2N] Task from ${mission.agent_name}`
 
-    const contextSummary = output.replace(/---SEND_TO---[\s\S]*?---END---/g, '').trim().slice(0, 3000)
+    const contextSummary = fullOutput.replace(/---SEND_TO---[\s\S]*?---END---/g, '').trim().slice(0, 3000)
 
     const taskDesc = [
       `## 📨 งานจาก ${mission.agent_name}`,
@@ -883,13 +943,15 @@ function handleSendTo(db: any, sourceMissionId: string, mission: any, output: st
     ].filter(Boolean).join('\n')
 
     db.prepare(`
-      INSERT INTO missions (id, title, description, agent_id, priority, status, parent_mission_id, trace_id, hop_count, dedupe_key, owner)
-      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+      INSERT INTO missions (id, title, description, agent_id, priority, status, parent_mission_id, trace_id, hop_count, dedupe_key, owner, phase)
+      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, NULL)
     `).run(
       spawnedMissionId, taskTitle, taskDesc, targetAgent.id,
       (mission as any).priority || 'normal', parentId,
       (mission as any).trace_id || null, currentHopCount + 1,
       dedupe_key || null, targetAgent.name
+      // phase = NULL explicitly — N2N missions are phaseless and must not corrupt
+      // advanceProjectPhase() gate checks. NULL overrides column DEFAULT 0.
     )
 
     fetch(`${BASE_URL}/api/missions/${spawnedMissionId}/execute`, { method: 'POST' }).catch((e) => console.error('[n2n] spawn failed for mission', spawnedMissionId, e.message))
@@ -945,6 +1007,10 @@ export const dynamic = 'force-dynamic'
 const CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || 'claude'
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
 const MISSION_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+const WATCHDOG_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — don't scan on every request
+
+// Module-level throttle timestamp (survives across requests in same Node.js process)
+let _lastWatchdogRun = 0
 
 // ── Watchdog: reset missions stuck in 'running' for too long ─────────────────
 function resetStaleMissions(db: any) {
@@ -960,6 +1026,20 @@ function resetStaleMissions(db: any) {
       db.prepare(`UPDATE agents SET status = 'idle' WHERE status = 'working'`).run()
     }
   } catch (e) { console.error('[watchdog] stale reset error:', e) }
+
+  try {
+    // 2b. Rescue sub-missions stuck in 'pending' > 30 min (execute fetch failed on spawn)
+    // Only targets child missions — top-level pending missions may be waiting for manual trigger
+    const stalePending = db.prepare(`
+      UPDATE missions SET status = 'failed', error = 'Mission stuck in pending (execute never fired)'
+      WHERE status = 'pending'
+        AND parent_mission_id IS NOT NULL
+        AND datetime(created_at) < datetime('now', '-30 minutes')
+    `).run()
+    if (stalePending.changes > 0) {
+      console.log(`[watchdog] 🗑️ Reset ${stalePending.changes} stuck-pending sub-mission(s)`)
+    }
+  } catch (e) { console.error('[watchdog] pending reset error:', e) }
 
   try {
     // 2. Phase watchdog: find waiting_phase missions whose entire previous phase is done
@@ -1001,12 +1081,17 @@ function resetStaleMissions(db: any) {
 export async function POST(_: Request, { params }: { params: { id: string } }) {
   const db = getDb()
 
-  // Clean up any stale missions from previous server runs
-  resetStaleMissions(db)
+  // Watchdog: throttled — runs at most once every 5 minutes, not on every request
+  const now = Date.now()
+  if (now - _lastWatchdogRun >= WATCHDOG_INTERVAL_MS) {
+    _lastWatchdogRun = now
+    resetStaleMissions(db)
+  }
 
   const mission = db.prepare(`
-    SELECT m.*, a.name as agent_name, a.sprite as agent_sprite, a.model as agent_model,
-           a.system_prompt as agent_system_prompt, a.personality as agent_personality,
+    SELECT m.*, a.name as agent_name, a.role as agent_role, a.sprite as agent_sprite,
+           a.model as agent_model, a.system_prompt as agent_system_prompt,
+           a.personality as agent_personality,
            (
              SELECT p.work_dir FROM projects p
              WHERE p.mission_id = m.parent_mission_id
@@ -1024,7 +1109,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     return new Response('Mission already running', { status: 400 })
   }
 
-  db.prepare("UPDATE missions SET status = 'running' WHERE id = ?").run(params.id)
+  db.prepare("UPDATE missions SET status = 'running', started_at = CURRENT_TIMESTAMP WHERE id = ?").run(params.id)
   db.prepare("UPDATE agents SET status = 'working' WHERE id = ?").run(mission.agent_id)
 
   const memories = db.prepare(`
@@ -1243,7 +1328,8 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
         if (parentId) {
           try {
             // First check if a QA mission is waiting for retest (bug fix just completed)
-            const isBugFix = mission.title?.includes('Bug Fix')
+            // Match the exact title format used in spawnBugFixLoop — avoid false matches
+            const isBugFix = mission.title?.startsWith('🔧 Bug Fix Round')
             if (isBugFix) {
               checkRetestQA(db, parentId)
             } else {
@@ -1313,31 +1399,77 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
         // info automatically so the Projects page shows WEB/DB buttons immediately.
         if (Number(mission.phase) === 4 || String(mission.title).toLowerCase().includes('[integration]')) {
           try {
-            const parentId = mission.parent_mission_id
-            if (parentId) {
-              const project = db.prepare('SELECT id FROM projects WHERE mission_id = ?').get(parentId) as { id: string } | undefined
+            const integrationParentId = mission.parent_mission_id  // distinct name — avoids shadow
+            if (integrationParentId) {
+              const project = db.prepare('SELECT id FROM projects WHERE mission_id = ?').get(integrationParentId) as { id: string } | undefined
               if (project) {
-                // Parse web port: "localhost:NNNN" or "port NNNN" patterns
-                const webPortMatch = fullOutput.match(/(?:App|Web|Frontend|localhost)[:\s]+(?:http:\/\/localhost:)?(\d{3,5})/i)
-                  || fullOutput.match(/http:\/\/localhost:(\d{3,5})/i)
-                // Parse adminer/db-admin port
-                const adminerMatch = fullOutput.match(/(?:Adminer|DB Admin|pgAdmin|db-admin)[:\s]+(?:http:\/\/localhost:)?(\d{3,5})/i)
-                  || fullOutput.match(/(?:http:\/\/localhost:(\d{3,5}))[^\n]*(?:adminer|admin|pgadmin)/i)
-                // Parse DB credentials
-                const dbUserMatch = fullOutput.match(/(?:POSTGRES_USER|DB_USER(?:NAME)?|db.?user(?:name)?)\s*[=:]\s*["'`]?(\w+)["'`]?/i)
-                const dbPassMatch = fullOutput.match(/(?:POSTGRES_PASSWORD|DB_PASS(?:WORD)?|db.?pass(?:word)?)\s*[=:]\s*["'`]?([^\s"'`\n]+)["'`]?/i)
+                // Primary: parse structured ---ACCESS-INFO--- block (more reliable than regex)
+                let webPort: number | null = null
+                let adminerPort: number | null = null
+                let dbUser: string | null = null
+                let dbPass: string | null = null
 
-                const webPort = webPortMatch ? Number(webPortMatch[1]) : null
-                const adminerPort = adminerMatch ? Number(adminerMatch[1]) : null
-                const dbUser = dbUserMatch ? dbUserMatch[1] : null
-                const dbPass = dbPassMatch ? dbPassMatch[1] : null
+                let parsedDemoAccounts: { role: string; email: string; password: string }[] = []
+                const accessBlockMatch = fullOutput.match(/---ACCESS-INFO---\s*([\s\S]*?)\s*---END---/)
+                if (accessBlockMatch) {
+                  try {
+                    const info = JSON.parse(accessBlockMatch[1].trim())
+                    webPort = info.web_port ? Number(info.web_port) : null
+                    adminerPort = info.adminer_port ? Number(info.adminer_port) : null
+                    dbUser = info.db_user ?? null
+                    dbPass = info.db_password ?? null
+                    // Parse demo_accounts from ACCESS-INFO block
+                    if (Array.isArray(info.demo_accounts)) {
+                      parsedDemoAccounts = info.demo_accounts
+                    }
+                    console.log(`[integration] 📦 Parsed ---ACCESS-INFO--- block (accounts: ${parsedDemoAccounts.length})`)
+                  } catch {}
+                }
 
-                // Ensure columns exist (migration-safe)
-                try { db.exec('ALTER TABLE projects ADD COLUMN integration_output TEXT') } catch {}
-                try { db.exec('ALTER TABLE projects ADD COLUMN demo_accounts_json TEXT') } catch {}
+                // Fallback: regex heuristics (for old outputs without structured block)
+                // DB/infra ports that must NOT be matched as web_port
+                const NON_WEB_PORTS = new Set([5432, 5433, 3306, 3307, 27017, 27018, 6379, 6380, 587, 465, 25, 2525, 5672, 15672])
+                const isWebPort = (p: number) => p >= 1024 && p <= 65535 && !NON_WEB_PORTS.has(p)
 
-                // Parse demo accounts (structured block → table → inline list)
-                const demoAccountsJson = parseDemoAccountsJson(fullOutput)
+                if (!webPort) {
+                  // Only match lines that explicitly label the web/app URL — require "App:" "Web:" "Frontend:" prefix
+                  // Do NOT match bare "localhost:PORT" to avoid catching DB/adminer ports
+                  const lines = fullOutput.split('\n')
+                  for (const line of lines) {
+                    const m = line.match(/(?:^|\|\s*)(?:App|Web App|Frontend|Web)\s*[|:]\s*(?:http:\/\/localhost:)?(\d{3,5})/i)
+                      || line.match(/NEXT_PUBLIC_APP_URL\s*=\s*["']?http:\/\/localhost:(\d{3,5})/i)
+                      || line.match(/http:\/\/localhost:(\d{3,5})[^\d].*(?:app|web|front|next|react)/i)
+                    if (m) {
+                      const candidate = Number(m[1])
+                      if (isWebPort(candidate)) { webPort = candidate; break }
+                    }
+                  }
+                }
+                if (!adminerPort) {
+                  const adminerMatch = fullOutput.match(/(?:CloudBeaver|Adminer|DB Admin|pgAdmin|db-admin)\s*[|:]\s*(?:http:\/\/localhost:)?(\d{3,5})/i)
+                    || fullOutput.match(/http:\/\/localhost:(\d{3,5})[^\n]*(?:cloudbeaver|adminer|pgadmin|db.?admin)/i)
+                  if (adminerMatch) adminerPort = Number(adminerMatch[1])
+                }
+                if (!dbUser) {
+                  const dbUserMatch = fullOutput.match(/(?:POSTGRES_USER|DB_USER(?:NAME)?|db.?user(?:name)?)\s*[=:]\s*["'`]?(\w+)["'`]?/i)
+                  dbUser = dbUserMatch ? dbUserMatch[1] : null
+                }
+                if (!dbPass) {
+                  const dbPassMatch = fullOutput.match(/(?:POSTGRES_PASSWORD|DB_PASS(?:WORD)?|db.?pass(?:word)?)\s*[=:]\s*["'`]?([^\s"'`\n]+)["'`]?/i)
+                  dbPass = dbPassMatch ? dbPassMatch[1] : null
+                }
+
+                // Ensure columns exist (idempotent migration)
+                ensureColumn(db, 'projects', 'integration_output', 'TEXT')
+                ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
+
+                // Parse demo accounts: prefer ACCESS-INFO block, fallback to legacy parsers
+                const demoAccountsJson = parsedDemoAccounts.length > 0
+                  ? JSON.stringify(parsedDemoAccounts)
+                  : parseDemoAccountsJson(fullOutput)
+
+                // Cap integration_output to avoid storing MB of text in projects table
+                const integrationOutput = fullOutput.slice(0, 20_000)
 
                 db.prepare(`
                   UPDATE projects SET
@@ -1348,7 +1480,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
                     integration_output = ?,
                     demo_accounts_json = COALESCE(?, demo_accounts_json)
                   WHERE id = ?
-                `).run(webPort, adminerPort, dbUser, dbPass, fullOutput, demoAccountsJson, project.id)
+                `).run(webPort, adminerPort, dbUser, dbPass, integrationOutput, demoAccountsJson, project.id)
 
                 console.log(`[integration] 💾 Saved to project ${project.id}: web=${webPort} adminer=${adminerPort} user=${dbUser}`)
               }
@@ -1364,14 +1496,21 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
             if (parentId) {
               const project = db.prepare('SELECT id, demo_accounts_json FROM projects WHERE mission_id = ?').get(parentId) as { id: string; demo_accounts_json: string | null } | undefined
               if (project) {
-                try { db.exec('ALTER TABLE projects ADD COLUMN demo_accounts_json TEXT') } catch {}
+                ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
                 const newAccounts = parseDemoAccounts(fullOutput)
                 if (newAccounts.length > 0) {
                   // Merge with existing — dedup by email, new entries win
                   const existing: { role: string; email: string; password: string }[] = project.demo_accounts_json
                     ? JSON.parse(project.demo_accounts_json) : []
                   const emailMap = new Map(existing.map(a => [a.email, a]))
-                  for (const a of newAccounts) emailMap.set(a.email, a)
+                  for (const a of newAccounts) {
+                    const prev = emailMap.get(a.email)
+                    // New entry wins only if it adds real data (non-placeholder password)
+                    // or there is no previous entry at all
+                    if (!prev || a.password !== '—' || prev.password === '—') {
+                      emailMap.set(a.email, a)
+                    }
+                  }
                   const merged = Array.from(emailMap.values())
                   db.prepare('UPDATE projects SET demo_accounts_json = ? WHERE id = ?')
                     .run(JSON.stringify(merged), project.id)

@@ -4,13 +4,13 @@ import './globals.css'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { Users, Crosshair, Radio, Flag, Cpu, ChevronLeft, CalendarClock, FolderOpen, MessageCircle, Monitor, GitBranch } from 'lucide-react'
+import { Users, Crosshair, Radio, Flag, Cpu, ChevronLeft, CalendarClock, FolderOpen, MessageCircle, BarChart2, GitBranch } from 'lucide-react'
 import { LanguageProvider, useLanguage } from '@/lib/i18n'
 
 const NAV_KEYS = [
   { href: '/agents',   key: 'nav_agents',   Icon: Users },
   { href: '/warroom',  key: 'nav_warroom',  Icon: Crosshair },
-  { href: '/monitor',  key: 'nav_monitor',  Icon: Monitor },
+  { href: '/usage',  key: 'nav_usage',  Icon: BarChart2 },
   { href: '/comms',    key: 'nav_comms',    Icon: Radio },
   { href: '/chat',     key: 'nav_chat',     Icon: MessageCircle },
   { href: '/missions', key: 'nav_missions', Icon: Flag },
