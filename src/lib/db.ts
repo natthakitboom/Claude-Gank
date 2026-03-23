@@ -210,6 +210,24 @@ function initializeSchema(db: Database.Database) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  // Deploy settings table — VPS connection info for one-click deploy
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS deploy_config (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      host TEXT NOT NULL DEFAULT '',
+      port INTEGER NOT NULL DEFAULT 22,
+      username TEXT NOT NULL DEFAULT 'root',
+      ssh_key_path TEXT NOT NULL DEFAULT '~/.ssh/id_rsa',
+      domain TEXT NOT NULL DEFAULT '',
+      deploy_path TEXT NOT NULL DEFAULT '/apps',
+      ssl_mode TEXT NOT NULL DEFAULT 'cloudflare',
+      cloudflare_proxy INTEGER NOT NULL DEFAULT 1,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  // Seed default row if not exists
+  db.exec(`INSERT OR IGNORE INTO deploy_config (id) VALUES ('default')`)
   // Seed default SDLC config — always update to latest spec
   db.prepare(`INSERT OR REPLACE INTO sdlc_config (id, config_json, updated_at) VALUES ('default', ?, CURRENT_TIMESTAMP)`).run(JSON.stringify({
     name: 'Quality-First Multi-Agent SDLC',
