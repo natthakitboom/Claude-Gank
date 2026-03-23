@@ -3,6 +3,7 @@ import { getDb } from '@/lib/db'
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+import { buildSafeEnv } from '@/lib/dockerEnv'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,9 +60,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
 
       // `exec` replaces bash with the command process — signals go directly to docker compose
+      // Use buildSafeEnv() to strip COMPOSE_PROJECT_NAME / COMPOSE_FILE / DOCKER_CONTEXT
+      // which could cause docker compose commands to target unrelated projects.
       const child = spawn('bash', ['-c', `exec ${cmd}`], {
         cwd,
-        env: { ...process.env, FORCE_COLOR: '0', TERM: 'dumb' },
+        env: buildSafeEnv(),
       })
 
       // SIGTERM first, then SIGKILL after 3s if still alive (mirrors mission timeout handler)

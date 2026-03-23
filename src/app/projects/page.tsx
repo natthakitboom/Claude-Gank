@@ -128,46 +128,24 @@ export default function ProjectsPage() {
   }
 
   async function stopDocker(p: Project) {
-    if (!p.work_dir) return
-    const f = p.docker_compose_path ? `-f "${p.docker_compose_path}"` : ''
+    if (!p.work_dir || !p.docker_compose_path) return
+    const f = `-f "${p.docker_compose_path}"`
     // use `stop -t 3` — force kill after 3s grace, faster than `down`, keeps volumes intact
     await runDocker(p, `docker compose ${f} stop -t 3`)
-    // re-verify actual status after stop completes
-    await checkDockerStatus(p)
+    // re-verify actual status via lightweight GET (does NOT kill any running process)
+    setTimeout(() => checkDockerStatus(p), 800)
   }
 
-  // Check actual docker container status for a project
+  // Check actual docker container status — uses dedicated GET endpoint (non-destructive,
+  // never kills a running exec stream unlike the POST /exec route).
   const checkDockerStatus = useCallback(async (p: Project) => {
-    // skip if no compose file, or if a docker command is actively running (would kill it!)
+    // skip if no compose file, or if a docker command is actively running
     if (!p.docker_compose_path || dockerRunningRef.current[p.id]) return
     try {
-      const f = p.docker_compose_path ? `-f "${p.docker_compose_path}"` : ''
-      const res = await fetch(`/api/projects/${p.id}/exec`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cmd: `docker compose ${f} ps -q --status running 2>/dev/null` }),
-      })
-      const reader = res.body?.getReader()
-      if (!reader) return
-      const decoder = new TextDecoder()
-      let output = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const text = decoder.decode(value)
-        const lines = text.split('\n').filter(l => l.startsWith('data: '))
-        for (const line of lines) {
-          try { const { text: t } = JSON.parse(line.slice(6)); output += t } catch {}
-        }
-      }
-      // filter out exec meta-lines like "[exit 0]", "[error: ...]"
-      // real container IDs are hex strings, never start with "["
-      const containerLines = output.split('\n').filter(l => {
-        const t = l.trim()
-        return t.length > 0 && !t.startsWith('[')
-      })
-      const isUp = containerLines.length > 0
-      setContainerUp(s => ({ ...s, [p.id]: isUp }))
+      const res = await fetch(`/api/projects/${p.id}/docker-status`, { method: 'GET' })
+      if (!res.ok) return
+      const { up } = await res.json() as { up: boolean; containers: string[] }
+      setContainerUp(s => ({ ...s, [p.id]: up }))
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
