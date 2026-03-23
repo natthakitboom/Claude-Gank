@@ -44,6 +44,7 @@ export default function SystemPage() {
   const [deploySaved, setDeploySaved] = useState(false)
   const [deployTesting, setDeployTesting] = useState(false)
   const [deployTestResult, setDeployTestResult] = useState<{ ok: boolean; uname?: string; docker?: string; memory?: string; disk?: string; error?: string } | null>(null)
+  const [deployProjects, setDeployProjects] = useState<{ id: string; name: string; work_dir: string }[]>([])
 
   // Skills state
   const [filterCat, setFilterCat] = useState('all')
@@ -62,6 +63,7 @@ export default function SystemPage() {
     fetch('/api/stats').then((r) => r.json()).then(setStats)
     fetch('/api/notify').then((r) => r.json()).then(setNotifyConfigs)
     fetch('/api/deploy/config').then((r) => r.json()).then((d) => { if (d.host !== undefined) setDeployConfig(d) })
+    fetch('/api/projects').then((r) => r.json()).then((d) => setDeployProjects(Array.isArray(d) ? d : []))
   }, [])
 
   useEffect(() => {
@@ -799,11 +801,11 @@ export default function SystemPage() {
                   style={{ background: '#0d1117', border: '1px solid #1a2535' }}
                 />
                 <div className="mt-1" style={{ fontSize: '8px', color: '#374151' }}>
-                  *.domain → ใช้ subdomain อัตโนมัติ (leave.myapp.com, booking.myapp.com)
+                  *.domain → wildcard subdomain (leave.myapp.com, booking.myapp.com)
                 </div>
               </div>
               <div>
-                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>DEPLOY PATH ON VPS</label>
+                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>BASE DIRECTORY ON VPS</label>
                 <input
                   type="text"
                   value={deployConfig.deploy_path}
@@ -812,8 +814,65 @@ export default function SystemPage() {
                   className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
                   style={{ background: '#0d1117', border: '1px solid #1a2535' }}
                 />
+                <div className="mt-1" style={{ fontSize: '8px', color: '#374151' }}>
+                  แต่ละ project จะอยู่ใน {deployConfig.deploy_path || '/apps'}/<span style={{ color: '#00e5ff' }}>project-slug</span>
+                </div>
               </div>
             </div>
+
+            {/* Project deployment preview */}
+            {deployProjects.length > 0 && (
+              <div>
+                <div className="font-orbitron mb-2 flex items-center gap-2" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>
+                  PROJECTS — AUTO-COMPUTED PATHS
+                  <span className="rounded px-1.5 py-0.5 font-mono" style={{ fontSize: '7px', background: 'rgba(0,229,255,0.08)', color: '#00e5ff', border: '1px solid rgba(0,229,255,0.15)' }}>
+                    {deployProjects.length} projects
+                  </span>
+                </div>
+                <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #1a2535' }}>
+                  <table className="w-full">
+                    <thead>
+                      <tr style={{ background: '#0a0f16' }}>
+                        <th className="text-left px-3 py-2 font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.08em' }}>PROJECT</th>
+                        <th className="text-left px-3 py-2 font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.08em' }}>VPS PATH</th>
+                        <th className="text-left px-3 py-2 font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.08em' }}>URL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deployProjects.map((p, i) => {
+                        const slug = p.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+                        const vpsPath = `${deployConfig.deploy_path || '/apps'}/${slug}`
+                        const url = deployConfig.domain ? `${slug}.${deployConfig.domain}` : '—'
+                        return (
+                          <tr key={p.id} style={{ borderTop: i > 0 ? '1px solid #0d1117' : undefined, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                            <td className="px-3 py-2">
+                              <span className="font-mono text-xs text-white">{p.name}</span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="font-mono" style={{ fontSize: '11px', color: '#22c55e' }}>{vpsPath}</span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="font-mono" style={{ fontSize: '11px', color: deployConfig.domain ? '#00e5ff' : '#374151' }}>
+                                {deployConfig.ssl_mode !== 'none' && deployConfig.domain ? 'https://' : ''}{url}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-1.5" style={{ fontSize: '7px', color: '#374151' }}>
+                  ⚡ ระบบจะสร้าง directory + Nginx config + SSL ให้อัตโนมัติตาม path ด้านบน
+                </div>
+              </div>
+            )}
+
+            {deployProjects.length === 0 && (
+              <div className="rounded-lg p-4 text-center" style={{ background: '#0d1117', border: '1px solid #1a2535' }}>
+                <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151' }}>ยังไม่มี Projects — ไปสร้างที่ Projects menu ก่อน</div>
+              </div>
+            )}
 
             <div>
               <label className="font-orbitron block mb-2" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>SSL MODE</label>
