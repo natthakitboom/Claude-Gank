@@ -215,7 +215,7 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="p-6 space-y-6" style={{ maxWidth: 1100 }}>
+    <div className="p-6 space-y-6" style={{ maxWidth: '100%' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -291,7 +291,7 @@ export default function ProjectsPage() {
           </a>
         </div>
       ) : (
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           {projects.map(p => {
             const color = statusColor(p)
             const label = statusLabel(p)
