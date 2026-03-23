@@ -14,13 +14,29 @@ export async function POST() {
     return NextResponse.json({ ok: false, error: 'Host not configured' }, { status: 400 })
   }
 
-  const keyPath = config.ssh_key_path.replace(/^~/, os.homedir())
-  if (!fs.existsSync(keyPath)) {
-    return NextResponse.json({ ok: false, error: `SSH key not found: ${keyPath}` }, { status: 400 })
-  }
+  const authMethod = config.auth_method || 'sshkey'
 
-  try {
-    const sshCmd = [
+  // Build SSH command depending on auth method
+  let sshCmd: string
+  if (authMethod === 'password') {
+    if (!config.ssh_password) {
+      return NextResponse.json({ ok: false, error: 'Password not configured' }, { status: 400 })
+    }
+    sshCmd = [
+      'sshpass', `-p "${config.ssh_password}"`,
+      'ssh',
+      '-o StrictHostKeyChecking=no',
+      '-o ConnectTimeout=10',
+      `-p ${config.port || 22}`,
+      `${config.username || 'root'}@${config.host}`,
+      '"uname -a && docker --version && free -h | head -2 && df -h / | tail -1"',
+    ].join(' ')
+  } else {
+    const keyPath = config.ssh_key_path.replace(/^~/, os.homedir())
+    if (!fs.existsSync(keyPath)) {
+      return NextResponse.json({ ok: false, error: `SSH key not found: ${keyPath}` }, { status: 400 })
+    }
+    sshCmd = [
       'ssh',
       '-o StrictHostKeyChecking=no',
       '-o ConnectTimeout=10',
@@ -30,7 +46,9 @@ export async function POST() {
       `${config.username || 'root'}@${config.host}`,
       '"uname -a && docker --version && free -h | head -2 && df -h / | tail -1"',
     ].join(' ')
+  }
 
+  try {
     const output = execSync(sshCmd, { timeout: 15_000, encoding: 'utf8' }).trim()
 
     // Parse system info

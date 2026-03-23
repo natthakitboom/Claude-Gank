@@ -218,7 +218,9 @@ function initializeSchema(db: Database.Database) {
       host TEXT NOT NULL DEFAULT '',
       port INTEGER NOT NULL DEFAULT 22,
       username TEXT NOT NULL DEFAULT 'root',
+      auth_method TEXT NOT NULL DEFAULT 'sshkey',
       ssh_key_path TEXT NOT NULL DEFAULT '~/.ssh/id_rsa',
+      ssh_password TEXT NOT NULL DEFAULT '',
       domain TEXT NOT NULL DEFAULT '',
       deploy_path TEXT NOT NULL DEFAULT '/apps',
       ssl_mode TEXT NOT NULL DEFAULT 'cloudflare',
@@ -228,6 +230,9 @@ function initializeSchema(db: Database.Database) {
   `)
   // Seed default row if not exists
   db.exec(`INSERT OR IGNORE INTO deploy_config (id) VALUES ('default')`)
+  // Migrate: add auth columns if missing (for existing DBs)
+  try { db.exec(`ALTER TABLE deploy_config ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'sshkey'`) } catch {}
+  try { db.exec(`ALTER TABLE deploy_config ADD COLUMN ssh_password TEXT NOT NULL DEFAULT ''`) } catch {}
   // Seed default SDLC config — always update to latest spec
   db.prepare(`INSERT OR REPLACE INTO sdlc_config (id, config_json, updated_at) VALUES ('default', ?, CURRENT_TIMESTAMP)`).run(JSON.stringify({
     name: 'Quality-First Multi-Agent SDLC',

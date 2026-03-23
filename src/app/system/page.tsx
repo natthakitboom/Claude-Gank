@@ -22,7 +22,8 @@ interface NotifyConfig {
 }
 
 interface DeployConfig {
-  host: string; port: number; username: string; ssh_key_path: string
+  host: string; port: number; username: string
+  auth_method: string; ssh_key_path: string; ssh_password: string
   domain: string; deploy_path: string; ssl_mode: string; cloudflare_proxy: number
 }
 
@@ -38,7 +39,7 @@ export default function SystemPage() {
   const [testResult, setTestResult] = useState('')
 
   // Deploy state
-  const [deployConfig, setDeployConfig] = useState<DeployConfig>({ host: '', port: 22, username: 'root', ssh_key_path: '~/.ssh/id_rsa', domain: '', deploy_path: '/apps', ssl_mode: 'cloudflare', cloudflare_proxy: 1 })
+  const [deployConfig, setDeployConfig] = useState<DeployConfig>({ host: '', port: 22, username: 'root', auth_method: 'sshkey', ssh_key_path: '~/.ssh/id_rsa', ssh_password: '', domain: '', deploy_path: '/apps', ssl_mode: 'cloudflare', cloudflare_proxy: 1 })
   const [deploySaving, setDeploySaving] = useState(false)
   const [deploySaved, setDeploySaved] = useState(false)
   const [deployTesting, setDeployTesting] = useState(false)
@@ -719,6 +720,27 @@ export default function SystemPage() {
               </div>
             </div>
 
+            {/* Auth method toggle */}
+            <div>
+              <label className="font-orbitron block mb-2" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>AUTHENTICATION METHOD</label>
+              <div className="flex gap-2">
+                {[{ v: 'sshkey', label: '🔑 SSH KEY', desc: 'Key file' }, { v: 'password', label: '🔒 PASSWORD', desc: 'Username + Pass' }].map(opt => (
+                  <button
+                    key={opt.v}
+                    onClick={() => setDeployConfig(c => ({ ...c, auth_method: opt.v }))}
+                    className="flex-1 rounded-lg px-4 py-2.5 text-left transition-all"
+                    style={{
+                      background: deployConfig.auth_method === opt.v ? 'rgba(0,229,255,0.08)' : '#0d1117',
+                      border: `1px solid ${deployConfig.auth_method === opt.v ? 'rgba(0,229,255,0.35)' : '#1a2535'}`,
+                    }}
+                  >
+                    <div className="font-orbitron font-bold" style={{ fontSize: '10px', color: deployConfig.auth_method === opt.v ? '#00e5ff' : '#64748b', letterSpacing: '0.05em' }}>{opt.label}</div>
+                    <div className="font-mono" style={{ fontSize: '9px', color: '#374151', marginTop: 2 }}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>USERNAME</label>
@@ -731,17 +753,31 @@ export default function SystemPage() {
                   style={{ background: '#0d1117', border: '1px solid #1a2535' }}
                 />
               </div>
-              <div>
-                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>SSH KEY PATH</label>
-                <input
-                  type="text"
-                  value={deployConfig.ssh_key_path}
-                  onChange={e => setDeployConfig(c => ({ ...c, ssh_key_path: e.target.value }))}
-                  placeholder="~/.ssh/id_rsa"
-                  className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
-                  style={{ background: '#0d1117', border: '1px solid #1a2535' }}
-                />
-              </div>
+              {deployConfig.auth_method === 'password' ? (
+                <div>
+                  <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>PASSWORD</label>
+                  <input
+                    type="password"
+                    value={deployConfig.ssh_password}
+                    onChange={e => setDeployConfig(c => ({ ...c, ssh_password: e.target.value }))}
+                    placeholder="••••••••"
+                    className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                    style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>SSH KEY PATH</label>
+                  <input
+                    type="text"
+                    value={deployConfig.ssh_key_path}
+                    onChange={e => setDeployConfig(c => ({ ...c, ssh_key_path: e.target.value }))}
+                    placeholder="~/.ssh/id_rsa"
+                    className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                    style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -894,7 +930,7 @@ export default function SystemPage() {
                   </div>
                   <div className="font-mono text-xs" style={{ color: '#f87171' }}>{deployTestResult.error}</div>
                   <div style={{ fontSize: '9px', color: '#4a5568', marginTop: 4 }}>
-                    ตรวจสอบ: IP ถูกต้อง? SSH key ถูกไฟล์? Port 22 เปิดอยู่? VPS firewall อนุญาต SSH?
+                    ตรวจสอบ: IP ถูกต้อง? Auth method ถูกต้อง? Port 22 เปิดอยู่? VPS firewall อนุญาต SSH?
                   </div>
                 </div>
               )}
