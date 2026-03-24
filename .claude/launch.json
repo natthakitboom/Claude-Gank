@@ -1,12 +1,12 @@
 {
   "version": "0.0.1",
+  "autoPort": false,
   "configurations": [
     {
       "name": "multi-agent-dashboard",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "dev"],
-      "port": 3000,
-      "autoPort": false
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 9000
     }
   ]
 }
