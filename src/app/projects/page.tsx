@@ -41,6 +41,25 @@ function parseDbCreds(output: string | null): { user: string; pass: string } | n
   return { user: user || '—', pass: pass || '—' }
 }
 
+// Parse ports from integration output (fallback when not stored in DB columns)
+function parsePorts(output: string | null): { web: number | null; adminer: number | null; api: number | null } {
+  if (!output) return { web: null, adminer: null, api: null }
+  const web = Number(output.match(/"?web_port"?\s*[=:]\s*(\d+)/i)?.[1] || output.match(/APP.*?:(\d{4})/i)?.[1] || 0) || null
+  const adminer = Number(output.match(/"?adminer_port"?\s*[=:]\s*(\d+)/i)?.[1] || output.match(/(?:cloudbeaver|adminer|db.admin).*?:(\d{4,5})/i)?.[1] || 0) || null
+  const api = Number(output.match(/"?api_port"?\s*[=:]\s*(\d+)/i)?.[1] || 0) || null
+  return { web, adminer, api }
+}
+
+// Merge stored ports with parsed fallback
+function getEffectivePorts(p: Project) {
+  const parsed = parsePorts(p.integration_output)
+  return {
+    web: p.web_port || parsed.web,
+    adminer: p.adminer_port || parsed.adminer,
+    api: p.api_port || parsed.api,
+  }
+}
+
 function statusColor(p: Project) {
   if (p.running_tasks > 0) return '#00e5ff'
   if (p.failed_tasks > 0 && p.completed_tasks < p.task_count) return '#ff4d4f'
@@ -367,9 +386,10 @@ export default function ProjectsPage() {
                 {/* Access Info */}
                 {(() => {
                   const creds = p.db_user || p.db_password ? { user: p.db_user, pass: p.db_password } : parseDbCreds(p.integration_output)
+                  const ports = getEffectivePorts(p)
                   const rows = [
-                    { label: 'App', value: p.web_port ? `http://localhost:${p.web_port}` : null, isLink: true, color: '#00c853' },
-                    { label: 'DB Admin', value: (p.adminer_port || p.db_port) ? `http://localhost:${p.adminer_port || p.db_port}` : null, isLink: true, color: '#a855f7' },
+                    { label: 'App', value: ports.web ? `http://localhost:${ports.web}` : null, isLink: true, color: '#00c853' },
+                    { label: 'DB Admin', value: ports.adminer ? `http://localhost:${ports.adminer}` : null, isLink: true, color: '#a855f7' },
                     { label: 'DB Username', value: creds?.user ?? null, isLink: false, color: '#94a3b8' },
                     { label: 'Pass', value: creds?.pass ?? null, isLink: false, color: '#64748b' },
                   ]
@@ -429,49 +449,53 @@ export default function ProjectsPage() {
                 </div>
 
                 {/* Quick-launch buttons: WEB / API / DB */}
-                {(p.web_port || p.api_port || p.adminer_port) && (
+                {(() => {
+                  const ports = getEffectivePorts(p)
+                  if (!ports.web && !ports.api && !ports.adminer) return null
+                  return (
                   <div className="flex gap-2 flex-wrap">
-                    {p.web_port && (
+                    {ports.web && (
                       <a
-                        href={`http://localhost:${p.web_port}`}
+                        href={`http://localhost:${ports.web}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105"
                         style={{ background: '#003320', border: '1px solid #00c85340', color: '#00c853' }}
-                        title={`Web — localhost:${p.web_port}`}
+                        title={`Web — localhost:${ports.web}`}
                       >
                         <Globe size={11} />
-                        WEB :{p.web_port}
+                        WEB :{ports.web}
                       </a>
                     )}
-                    {p.api_port && (
+                    {ports.api && (
                       <a
-                        href={`http://localhost:${p.api_port}`}
+                        href={`http://localhost:${ports.api}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105"
                         style={{ background: '#1a1400', border: '1px solid #f59e0b40', color: '#f59e0b' }}
-                        title={`API — localhost:${p.api_port}`}
+                        title={`API — localhost:${ports.api}`}
                       >
                         <Cpu size={11} />
-                        API :{p.api_port}
+                        API :{ports.api}
                       </a>
                     )}
-                    {p.adminer_port && (
+                    {ports.adminer && (
                       <a
-                        href={`http://localhost:${p.adminer_port}`}
+                        href={`http://localhost:${ports.adminer}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105"
                         style={{ background: '#0d0030', border: '1px solid #a855f740', color: '#a855f7' }}
-                        title={`CloudBeaver — localhost:${p.adminer_port}`}
+                        title={`CloudBeaver — localhost:${ports.adminer}`}
                       >
                         <Database size={11} />
-                        DB :{p.adminer_port}
+                        DB :{ports.adminer}
                       </a>
                     )}
                   </div>
-                )}
+                  )
+                })()}
 
                 {/* Docker Controls */}
                 {p.docker_compose_path && (
