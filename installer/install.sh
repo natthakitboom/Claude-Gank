@@ -6,7 +6,7 @@ set -e
 
 REPO_URL="https://github.com/natthakitboom/Claude-Gank.git"
 INSTALL_DIR="$HOME/Claude Team Gang"
-APP_DIR="$INSTALL_DIR/multi-agent-dashboard"
+APP_DIR="$INSTALL_DIR"   # repo root IS the app (no subdirectory)
 LAUNCH_AGENT_PLIST="$HOME/Library/LaunchAgents/com.claudegang.app.plist"
 APP_PORT=3000
 LOG_FILE="$HOME/Library/Logs/claude-gang.log"
