@@ -708,7 +708,14 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
     DEV_KEYWORDS.some(kw => t.agent_name?.toLowerCase().includes(kw))
   )
 
-  const existingProject = db.prepare('SELECT id, work_dir, docker_compose_path FROM projects WHERE mission_id = ?').get(parentMissionId) as any
+  // Also check if the parentMission itself is a child of another mission that owns a project
+  // (e.g. [N2N FIX] / [AUDIT] missions have parent_mission_id pointing to the original orchestra mission)
+  const parentMissionRow = db.prepare('SELECT parent_mission_id FROM missions WHERE id = ?').get(parentMissionId) as any
+  const grandParentId = parentMissionRow?.parent_mission_id || null
+  const existingProject = (
+    db.prepare('SELECT id, work_dir, docker_compose_path FROM projects WHERE mission_id = ?').get(parentMissionId) ||
+    (grandParentId ? db.prepare('SELECT id, work_dir, docker_compose_path FROM projects WHERE mission_id = ?').get(grandParentId) : null)
+  ) as any
   if (!existingProject && isDevProject) {
     const projectId = `project-${uuidv4().slice(0, 8)}`
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30)
