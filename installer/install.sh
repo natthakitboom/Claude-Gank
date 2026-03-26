@@ -102,8 +102,26 @@ fi
 # ── 7. Install dependencies + Build ─────────────────────────
 log "ติดตั้ง dependencies..."
 cd "$APP_DIR"
-npm install
-ok "Dependencies installed"
+
+# Set npm timeout and retry config for slow networks
+npm config set fetch-retry-mintimeout 20000 2>/dev/null || true
+npm config set fetch-retry-maxtimeout 120000 2>/dev/null || true
+npm config set fetch-retries 5 2>/dev/null || true
+
+# Try npm install up to 3 times
+for attempt in 1 2 3; do
+  log "npm install (attempt $attempt/3)..."
+  if npm install --timeout=120000; then
+    ok "Dependencies installed"
+    break
+  fi
+  if [ $attempt -eq 3 ]; then
+    err "npm install ล้มเหลว 3 ครั้ง — ตรวจสอบ internet แล้วรัน install.sh ใหม่"
+    exit 1
+  fi
+  warn "Retry ใน 5 วินาที..."
+  sleep 5
+done
 
 log "Build production app..."
 npm run build
