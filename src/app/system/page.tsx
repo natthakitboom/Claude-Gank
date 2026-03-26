@@ -39,7 +39,8 @@ export default function SystemPage() {
   const [testResult, setTestResult] = useState('')
 
   // System config state
-  const [claudePath, setClaudePath] = useState('/Users/natthakit.s/.local/bin/claude')
+  const [claudePath, setClaudePath] = useState('')
+  const [claudePathAutoDetected, setClaudePathAutoDetected] = useState(false)
   const [claudePathSaving, setClaudePathSaving] = useState(false)
   const [claudePathResult, setClaudePathResult] = useState<{ ok?: boolean; version?: string; error?: string } | null>(null)
 
@@ -68,7 +69,7 @@ export default function SystemPage() {
     fetch('/api/stats').then((r) => r.json()).then(setStats)
     fetch('/api/notify').then((r) => r.json()).then(setNotifyConfigs)
     fetch('/api/deploy/config').then((r) => r.json()).then((d) => { if (d.host !== undefined) setDeployConfig(d) })
-    fetch('/api/system/config').then((r) => r.json()).then((d) => { if (d.claude_cli_path) setClaudePath(d.claude_cli_path) })
+    fetch('/api/system/config').then((r) => r.json()).then((d) => { if (d.claude_cli_path) { setClaudePath(d.claude_cli_path); if (d.auto_detected) setClaudePathAutoDetected(true) } })
     fetch('/api/projects').then((r) => r.json()).then((d) => setDeployProjects(Array.isArray(d) ? d : []))
   }, [])
 
@@ -1036,7 +1037,14 @@ export default function SystemPage() {
             </div>
             <div className="space-y-3">
               <div>
-                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>PATH TO CLAUDE EXECUTABLE</label>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <label className="font-orbitron" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>PATH TO CLAUDE EXECUTABLE</label>
+                  {claudePathAutoDetected && (
+                    <span className="font-orbitron rounded px-1.5 py-0.5" style={{ fontSize: '7px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#22c55e' }}>
+                      ⚡ AUTO DETECTED
+                    </span>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
