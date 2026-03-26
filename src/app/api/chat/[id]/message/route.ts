@@ -5,7 +5,13 @@ import { v4 as uuidv4 } from 'uuid'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || 'claude'
+function getClaudeCLI(db: any): string {
+  try {
+    const row = db.prepare('SELECT claude_cli_path FROM system_config WHERE id = ?').get('default') as any
+    if (row?.claude_cli_path) return row.claude_cli_path
+  } catch {}
+  return process.env.CLAUDE_CLI_PATH || 'claude'
+}
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const db = getDb()
@@ -67,7 +73,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       try {
         const modelArg = chat.agent_model || 'claude-haiku-4-5-20251001'
 
-        const child = spawn(CLAUDE_CLI, [
+        const child = spawn(getClaudeCLI(db), [
           '--print',
           '--verbose',
           '--output-format', 'stream-json',

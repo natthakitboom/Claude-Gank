@@ -1004,8 +1004,15 @@ function handlePhaseGateBlock(db: any, missionId: string, mission: any, output: 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || 'claude'
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+
+function getClaudeCLI(db: any): string {
+  try {
+    const row = db.prepare('SELECT claude_cli_path FROM system_config WHERE id = ?').get('default') as any
+    if (row?.claude_cli_path) return row.claude_cli_path
+  } catch {}
+  return process.env.CLAUDE_CLI_PATH || 'claude'
+}
 const MISSION_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const WATCHDOG_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — don't scan on every request
 
@@ -1167,7 +1174,7 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
       try {
         const modelArg = mission.agent_model || 'claude-haiku-4-5-20251001'
 
-        const child = spawn(CLAUDE_CLI, [
+        const child = spawn(getClaudeCLI(db), [
           '--print',
           '--verbose',
           '--output-format', 'stream-json',

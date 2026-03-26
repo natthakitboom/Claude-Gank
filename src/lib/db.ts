@@ -233,6 +233,16 @@ function initializeSchema(db: Database.Database) {
   // Migrate: add auth columns if missing (for existing DBs)
   try { db.exec(`ALTER TABLE deploy_config ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'sshkey'`) } catch {}
   try { db.exec(`ALTER TABLE deploy_config ADD COLUMN ssh_password TEXT NOT NULL DEFAULT ''`) } catch {}
+
+  // System config — global settings like Claude CLI path
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS system_config (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      claude_cli_path TEXT NOT NULL DEFAULT 'claude',
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  db.exec(`INSERT OR IGNORE INTO system_config (id) VALUES ('default')`)
   // Seed default SDLC config — always update to latest spec
   db.prepare(`INSERT OR REPLACE INTO sdlc_config (id, config_json, updated_at) VALUES ('default', ?, CURRENT_TIMESTAMP)`).run(JSON.stringify({
     name: 'Quality-First Multi-Agent SDLC',

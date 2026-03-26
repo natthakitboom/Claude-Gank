@@ -38,6 +38,11 @@ export default function SystemPage() {
   const [notifyConfigs, setNotifyConfigs] = useState<NotifyConfig[]>([])
   const [testResult, setTestResult] = useState('')
 
+  // System config state
+  const [claudePath, setClaudePath] = useState('/Users/natthakit.s/.local/bin/claude')
+  const [claudePathSaving, setClaudePathSaving] = useState(false)
+  const [claudePathResult, setClaudePathResult] = useState<{ ok?: boolean; version?: string; error?: string } | null>(null)
+
   // Deploy state
   const [deployConfig, setDeployConfig] = useState<DeployConfig>({ host: '', port: 22, username: 'root', auth_method: 'sshkey', ssh_key_path: '~/.ssh/id_rsa', ssh_password: '', domain: '', deploy_path: '/apps', ssl_mode: 'cloudflare', cloudflare_proxy: 1 })
   const [deploySaving, setDeploySaving] = useState(false)
@@ -63,6 +68,7 @@ export default function SystemPage() {
     fetch('/api/stats').then((r) => r.json()).then(setStats)
     fetch('/api/notify').then((r) => r.json()).then(setNotifyConfigs)
     fetch('/api/deploy/config').then((r) => r.json()).then((d) => { if (d.host !== undefined) setDeployConfig(d) })
+    fetch('/api/system/config').then((r) => r.json()).then((d) => { if (d.claude_cli_path) setClaudePath(d.claude_cli_path) })
     fetch('/api/projects').then((r) => r.json()).then((d) => setDeployProjects(Array.isArray(d) ? d : []))
   }, [])
 
@@ -1020,6 +1026,60 @@ export default function SystemPage() {
             </div>
             <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.05em' }}>
               CLAUDE GANK COMMAND CENTER v1.0.0 | POWERED BY ANTHROPIC CLAUDE
+            </div>
+          </div>
+
+          {/* Claude CLI Path */}
+          <div className="rounded-xl p-5 space-y-4" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+            <div className="font-orbitron font-bold text-white flex items-center gap-2" style={{ fontSize: '12px', letterSpacing: '0.05em' }}>
+              <span style={{ color: '#00e5ff' }}>⚙️</span> CLAUDE CLI PATH
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>PATH TO CLAUDE EXECUTABLE</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={claudePath}
+                    onChange={e => { setClaudePath(e.target.value); setClaudePathResult(null) }}
+                    placeholder="/Users/you/.local/bin/claude"
+                    className="flex-1 rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                    style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                  />
+                  <button
+                    disabled={claudePathSaving || !claudePath}
+                    onClick={async () => {
+                      setClaudePathSaving(true)
+                      setClaudePathResult(null)
+                      const res = await fetch('/api/system/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ claude_cli_path: claudePath }) })
+                      const data = await res.json()
+                      setClaudePathResult(data)
+                      setClaudePathSaving(false)
+                    }}
+                    className="font-orbitron px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
+                    style={{ fontSize: '10px', letterSpacing: '0.05em', background: 'rgba(0,229,255,0.12)', border: '1px solid rgba(0,229,255,0.25)', color: '#00e5ff' }}
+                  >
+                    {claudePathSaving ? '⏳...' : '💾 SAVE & TEST'}
+                  </button>
+                </div>
+                <div className="mt-1.5" style={{ fontSize: '8px', color: '#374151' }}>
+                  หา path ได้ด้วย <span className="font-mono px-1 rounded" style={{ background: '#0d1117', color: '#00e5ff' }}>which claude</span> ในเครื่อง
+                </div>
+              </div>
+
+              {claudePathResult && (
+                <div className="rounded-lg px-3 py-2" style={{ background: claudePathResult.ok ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${claudePathResult.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                  {claudePathResult.ok ? (
+                    <div className="font-mono text-xs" style={{ color: '#22c55e' }}>
+                      ✅ {claudePathResult.version}
+                    </div>
+                  ) : (
+                    <div className="font-mono text-xs" style={{ color: '#ef4444' }}>
+                      ❌ {claudePathResult.error || claudePathResult.version}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
