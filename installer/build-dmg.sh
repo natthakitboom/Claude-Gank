@@ -48,6 +48,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
     <string>1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
@@ -57,6 +59,11 @@ EOF
 # Copy install.sh to Resources
 cp "$SCRIPT_DIR/install.sh" "$RES_DIR/install.sh"
 chmod +x "$RES_DIR/install.sh"
+
+# Copy icon
+if [ -f "$SCRIPT_DIR/AppIcon.icns" ]; then
+  cp "$SCRIPT_DIR/AppIcon.icns" "$RES_DIR/AppIcon.icns"
+fi
 
 # Launcher executable — opens Terminal and runs install.sh
 cat > "$MACOS_DIR/Install Claude Team Gang" << 'LAUNCHER'

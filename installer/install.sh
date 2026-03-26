@@ -171,7 +171,14 @@ ok "LaunchAgent ตั้งค่าแล้ว (auto-start เมื่อ lo
 # ── 10. Install launcher .app to /Applications ───────────────
 APP_BUNDLE="/Applications/Claude Team Gang.app"
 MACOS_DIR="$APP_BUNDLE/Contents/MacOS"
-mkdir -p "$MACOS_DIR"
+RES_DIR="$APP_BUNDLE/Contents/Resources"
+mkdir -p "$MACOS_DIR" "$RES_DIR"
+
+# Copy icon if available
+ICON_SRC="$APP_DIR/installer/AppIcon.icns"
+if [ -f "$ICON_SRC" ]; then
+  cp "$ICON_SRC" "$RES_DIR/AppIcon.icns"
+fi
 
 cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -186,6 +193,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
     <string>Claude Team Gang</string>
     <key>CFBundleDisplayName</key>
     <string>Claude Team Gang</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundlePackageType</key>
