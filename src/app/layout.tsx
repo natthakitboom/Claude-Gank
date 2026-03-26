@@ -24,6 +24,8 @@ function Sidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [workingAgents, setWorkingAgents] = useState(0)
+  const [runningMissions, setRunningMissions] = useState(0)
+  const [stuckMissions, setStuckMissions] = useState(0)
   const { lang, t, toggle } = useLanguage()
 
   useEffect(() => {
@@ -32,10 +34,12 @@ function Sidebar() {
         const res = await fetch('/api/stats')
         const data = await res.json()
         setWorkingAgents(data.workingAgents ?? 0)
+        setRunningMissions(data.runningMissions ?? 0)
+        setStuckMissions(data.stuckMissions ?? 0)
       } catch {}
     }
     fetchStats()
-    const interval = setInterval(fetchStats, 5000)
+    const interval = setInterval(fetchStats, 8000)
     return () => clearInterval(interval)
   }, [])
 
@@ -164,13 +168,50 @@ function Sidebar() {
           )}
         </button>
 
+        {/* Mission health indicator */}
+        {!collapsed && (
+          <div
+            className="rounded-lg px-3 py-2 flex items-center gap-2"
+            style={{
+              background: stuckMissions > 0 ? 'rgba(239,68,68,0.07)' : runningMissions > 0 ? 'rgba(251,191,36,0.07)' : 'rgba(34,197,94,0.07)',
+              border: `1px solid ${stuckMissions > 0 ? 'rgba(239,68,68,0.2)' : runningMissions > 0 ? 'rgba(251,191,36,0.2)' : 'rgba(34,197,94,0.2)'}`,
+            }}
+          >
+            <span
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{
+                background: stuckMissions > 0 ? '#ef4444' : runningMissions > 0 ? '#fbbf24' : '#22c55e',
+                boxShadow: `0 0 5px ${stuckMissions > 0 ? '#ef4444' : runningMissions > 0 ? '#fbbf24' : '#22c55e'}`,
+                animation: runningMissions > 0 ? 'pulse 2s infinite' : undefined,
+              }}
+            />
+            <div>
+              <div className="font-orbitron" style={{ fontSize: '8px', letterSpacing: '0.05em', color: stuckMissions > 0 ? '#ef4444' : runningMissions > 0 ? '#fbbf24' : '#22c55e' }}>
+                {stuckMissions > 0 ? `⚠ ${stuckMissions} ค้าง!` : runningMissions > 0 ? `⚡ ${runningMissions} กำลังทำงาน` : '✓ ไม่มีค้าง'}
+              </div>
+              <div className="font-orbitron" style={{ fontSize: '7px', color: '#374151', marginTop: '1px' }}>
+                {stuckMissions > 0 ? 'มี mission ค้างเกิน 30 นาที' : runningMissions > 0 ? 'agents กำลัง active' : 'agents พร้อมทำงาน'}
+              </div>
+            </div>
+          </div>
+        )}
+        {collapsed && (
+          <div className="flex justify-center">
+            <span
+              className="w-2.5 h-2.5 rounded-full"
+              title={stuckMissions > 0 ? `${stuckMissions} ค้าง!` : runningMissions > 0 ? `${runningMissions} running` : 'ไม่มีค้าง'}
+              style={{
+                background: stuckMissions > 0 ? '#ef4444' : runningMissions > 0 ? '#fbbf24' : '#22c55e',
+                boxShadow: `0 0 6px ${stuckMissions > 0 ? '#ef4444' : runningMissions > 0 ? '#fbbf24' : '#22c55e'}`,
+              }}
+            />
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <span
             className="w-2 h-2 rounded-full flex-shrink-0"
-            style={{
-              background: '#22c55e',
-              boxShadow: '0 0 6px #22c55e',
-            }}
+            style={{ background: '#22c55e', boxShadow: '0 0 6px #22c55e' }}
           />
           {!collapsed && (
             <span className="font-orbitron text-gray-500" style={{ fontSize: '9px', letterSpacing: '0.08em' }}>

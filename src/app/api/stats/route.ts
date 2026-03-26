@@ -10,6 +10,13 @@ export async function GET() {
     const totalMissions = (db.prepare('SELECT COUNT(*) as count FROM missions').get() as { count: number }).count
     const doneMissions = (db.prepare("SELECT COUNT(*) as count FROM missions WHERE status = 'done'").get() as { count: number }).count
     const runningMissions = (db.prepare("SELECT COUNT(*) as count FROM missions WHERE status = 'running'").get() as { count: number }).count
+    // ค้าง = running เกิน 30 นาที
+    const stuckMissions = (db.prepare(`
+      SELECT COUNT(*) as count FROM missions
+      WHERE status = 'running'
+        AND started_at IS NOT NULL
+        AND (julianday('now') - julianday(started_at)) * 24 * 60 > 30
+    `).get() as { count: number }).count
     const totalMemories = (db.prepare('SELECT COUNT(*) as count FROM memory').get() as { count: number }).count
     const totalTokens = (db.prepare("SELECT SUM(tokens_used) as total FROM missions WHERE status = 'done'").get() as { total: number }).total || 0
     const totalMessages = (db.prepare('SELECT COUNT(*) as count FROM messages').get() as { count: number }).count
@@ -32,6 +39,7 @@ export async function GET() {
       totalMissions,
       doneMissions,
       runningMissions,
+      stuckMissions,
       totalMemories,
       totalTokens,
       totalMessages,
