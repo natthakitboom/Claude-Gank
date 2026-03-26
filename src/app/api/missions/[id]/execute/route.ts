@@ -1283,11 +1283,15 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
           gitAutoCommit(workDir, mission.title as string, mission.agent_name as string, missionPhase, tagLabel)
         }
 
-        // --- Secretary delegation: if this is a secretary-type agent and output has ---TASKS--- block ---
+        // --- Secretary / Audit delegation: any mission with ---TASKS--- block spawns sub-missions ---
         const isSecretary = (mission.agent_name as string)?.includes('เลขา') ||
           (mission.agent_name as string)?.toLowerCase().includes('secretary') ||
           (mission as any).agent_role?.toLowerCase().includes('coordinator')
-        if (isSecretary && fullOutput.includes('---TASKS---')) {
+        // Also allow AUDIT and N2N missions (title starts with [AUDIT] or [N2N]) to spawn sub-missions
+        const isDelegator = isSecretary ||
+          (mission.title as string)?.startsWith('[AUDIT]') ||
+          (mission.title as string)?.startsWith('[N2N FIX]')
+        if (isDelegator && fullOutput.includes('---TASKS---')) {
           try {
             spawnSecretarySubMissions(db, params.id, fullOutput, (mission as any).priority || 'normal')
           } catch (e) {
