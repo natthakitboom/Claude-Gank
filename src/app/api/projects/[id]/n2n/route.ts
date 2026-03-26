@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { v4 as uuidv4 } from 'uuid'
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:9000'
-
 export const dynamic = 'force-dynamic'
 
 // Find Secretary agent
@@ -123,9 +121,6 @@ ${roster}
     secretaryId,
     project.mission_id || null,
   )
-
-  // Execute secretary mission — she will output ---TASKS--- and spawn sub-missions
-  fetch(`${BASE_URL}/api/missions/${missionId}/execute`, { method: 'POST' }).catch(() => {})
 
   return NextResponse.json({ ok: true, missionId, message: 'N2N fix dispatched to Secretary' })
 }

@@ -205,18 +205,41 @@ export default function ProjectsPage() {
     setDeletingId(null)
   }
 
+  // Helper: create mission then immediately fire execute from browser (avoids server self-call port issues)
+  async function createAndExecute(
+    projectId: string,
+    endpoint: string,
+    body: object,
+    setRunning: (fn: (s: Record<string, boolean>) => Record<string, boolean>) => void,
+    pendingMsg: string,
+  ): Promise<{ ok: boolean; missionId?: string; error?: string }> {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    if (!data.ok || !data.missionId) return { ok: false, error: data.error || 'No missionId returned' }
+
+    // Fire execute directly from browser — no server self-call needed
+    fetch(`/api/missions/${data.missionId}/execute`, { method: 'POST' }).catch(() => {})
+    return { ok: true, missionId: data.missionId }
+  }
+
   async function handleAudit(p: Project) {
     if (auditRunning[p.id]) return
     setAuditRunning(s => ({ ...s, [p.id]: true }))
     setActionMsg(s => ({ ...s, [p.id]: '🔍 กำลังสร้าง Audit mission...' }))
     try {
-      const res = await fetch(`/api/projects/${p.id}/audit`, { method: 'POST' })
-      const data = await res.json()
-      if (data.ok) {
-        setActionMsg(s => ({ ...s, [p.id]: `✅ Audit mission: ${data.missionId}` }))
-        setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 5000)
+      const result = await createAndExecute(
+        p.id, `/api/projects/${p.id}/audit`, {},
+        setAuditRunning, '🔍 กำลังสร้าง Audit mission...',
+      )
+      if (result.ok) {
+        setActionMsg(s => ({ ...s, [p.id]: `✅ QA กำลัง audit: ${result.missionId}` }))
+        setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 6000)
       } else {
-        setActionMsg(s => ({ ...s, [p.id]: `❌ ${data.error}` }))
+        setActionMsg(s => ({ ...s, [p.id]: `❌ ${result.error}` }))
         setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 4000)
       }
     } catch (e: any) {
@@ -231,17 +254,15 @@ export default function ProjectsPage() {
     setN2nRunning(s => ({ ...s, [p.id]: true }))
     setActionMsg(s => ({ ...s, [p.id]: '⚡ เลขากำลังวิเคราะห์งานซ่อม...' }))
     try {
-      const res = await fetch(`/api/projects/${p.id}/n2n`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      const data = await res.json()
-      if (data.ok) {
-        setActionMsg(s => ({ ...s, [p.id]: `✅ N2N dispatched: ${data.missionId}` }))
-        setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 5000)
+      const result = await createAndExecute(
+        p.id, `/api/projects/${p.id}/n2n`, {},
+        setN2nRunning, '⚡ เลขากำลังวิเคราะห์งานซ่อม...',
+      )
+      if (result.ok) {
+        setActionMsg(s => ({ ...s, [p.id]: `✅ เลขากำลังทำงาน: ${result.missionId}` }))
+        setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 6000)
       } else {
-        setActionMsg(s => ({ ...s, [p.id]: `❌ ${data.error}` }))
+        setActionMsg(s => ({ ...s, [p.id]: `❌ ${result.error}` }))
         setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 4000)
       }
     } catch (e: any) {

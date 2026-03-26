@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { v4 as uuidv4 } from 'uuid'
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:9000'
-
 export const dynamic = 'force-dynamic'
 
 // Find QA / Security agent — prefer QA, fallback any TECH/QA agent
@@ -98,9 +96,6 @@ ${roster}
     qaAgentId,
     project.mission_id || null,
   )
-
-  // Fire-and-forget execute (audit runs in background)
-  fetch(`${BASE_URL}/api/missions/${missionId}/execute`, { method: 'POST' }).catch(() => {})
 
   return NextResponse.json({ ok: true, missionId, message: 'Audit mission created' })
 }
