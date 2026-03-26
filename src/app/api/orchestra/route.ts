@@ -46,6 +46,17 @@ export async function POST(request: Request) {
 
   if (!description) return NextResponse.json({ error: 'description required' }, { status: 400 })
 
+  // Dedup guard — ป้องกันสร้าง project ซ้ำในช่วง 60 วินาที (กรณีกด/ส่งซ้ำ)
+  const descKey = description.trim().slice(0, 80)
+  const recent = db.prepare(`
+    SELECT id, name FROM projects
+    WHERE substr(description, 1, 80) = ? AND created_at > datetime('now', '-60 seconds')
+    LIMIT 1
+  `).get(descKey) as any
+  if (recent) {
+    return NextResponse.json({ ok: true, project_id: recent.id, duplicate: true, message: 'Project นี้เพิ่งถูกสร้างไปแล้ว ไม่ถึง 60 วินาที' })
+  }
+
   // 1. Get secretary
   const secretaryId = getSecretaryId(db)
   if (!secretaryId) return NextResponse.json({ error: 'No secretary agent found' }, { status: 500 })
