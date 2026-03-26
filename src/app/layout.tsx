@@ -4,7 +4,7 @@ import './globals.css'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { Users, Crosshair, Radio, Flag, Cpu, ChevronLeft, CalendarClock, FolderOpen, MessageCircle, BarChart2, GitBranch } from 'lucide-react'
+import { Users, Crosshair, Radio, Flag, Cpu, ChevronLeft, CalendarClock, FolderOpen, MessageCircle, BarChart2, GitBranch, RefreshCw, X } from 'lucide-react'
 import { LanguageProvider, useLanguage } from '@/lib/i18n'
 
 const NAV_KEYS = [
@@ -26,6 +26,12 @@ function Sidebar() {
   const [workingAgents, setWorkingAgents] = useState(0)
   const [runningMissions, setRunningMissions] = useState(0)
   const [stuckMissions, setStuckMissions] = useState(0)
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [updateBehind, setUpdateBehind] = useState(0)
+  const [updateLatestMsg, setUpdateLatestMsg] = useState('')
+  const [showUpdateModal, setShowUpdateModal] = useState(false)
+  const [updateLogs, setUpdateLogs] = useState<{ type: string; msg: string }[]>([])
+  const [updating, setUpdating] = useState(false)
   const { lang, t, toggle } = useLanguage()
 
   useEffect(() => {
@@ -42,6 +48,55 @@ function Sidebar() {
     const interval = setInterval(fetchStats, 8000)
     return () => clearInterval(interval)
   }, [])
+
+  // Auto-check for updates every 5 minutes
+  useEffect(() => {
+    const checkVersion = async () => {
+      try {
+        const res = await fetch('/api/system/version')
+        const data = await res.json()
+        if (!data.error) {
+          setUpdateAvailable(!data.upToDate)
+          setUpdateBehind(data.behind ?? 0)
+          setUpdateLatestMsg(data.latestMessage ?? '')
+        }
+      } catch {}
+    }
+    checkVersion()
+    const interval = setInterval(checkVersion, 5 * 60 * 1000) // every 5 min
+    return () => clearInterval(interval)
+  }, [])
+
+  const runUpdate = async () => {
+    setUpdating(true)
+    setUpdateLogs([])
+    try {
+      const res = await fetch('/api/system/update', { method: 'POST' })
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const item = JSON.parse(line.slice(6))
+              setUpdateLogs(prev => [...prev, item])
+              if (item.type === 'done') setUpdateAvailable(false)
+            } catch {}
+          }
+        }
+      }
+    } catch (e: any) {
+      setUpdateLogs(prev => [...prev, { type: 'error', msg: `❌ ${e.message}` }])
+    } finally {
+      setUpdating(false)
+    }
+  }
 
   const w = collapsed ? '64px' : '176px'
 
@@ -208,6 +263,34 @@ function Sidebar() {
           </div>
         )}
 
+        {/* UPDATE button */}
+        <button
+          onClick={() => { setShowUpdateModal(true); setUpdateLogs([]) }}
+          className="flex items-center justify-center gap-1.5 w-full rounded transition-all"
+          style={{
+            background: updateAvailable ? 'rgba(251,191,36,0.12)' : '#0d1117',
+            border: `1px solid ${updateAvailable ? 'rgba(251,191,36,0.4)' : '#1a2535'}`,
+            padding: collapsed ? '5px' : '5px 8px',
+            position: 'relative',
+          }}
+          title={updateAvailable ? `มี ${updateBehind} update ใหม่` : 'เช็ค update'}
+        >
+          {updateAvailable && (
+            <span
+              className="absolute -top-1 -right-1 w-3 h-3 rounded-full flex items-center justify-center"
+              style={{ background: '#fbbf24', fontSize: '7px', fontWeight: 'bold', color: '#000' }}
+            >
+              {updateBehind}
+            </span>
+          )}
+          <RefreshCw size={11} style={{ color: updateAvailable ? '#fbbf24' : '#374151' }} />
+          {!collapsed && (
+            <span className="font-orbitron" style={{ fontSize: '9px', letterSpacing: '0.08em', color: updateAvailable ? '#fbbf24' : '#374151' }}>
+              {updateAvailable ? `UPDATE (${updateBehind})` : 'UP TO DATE'}
+            </span>
+          )}
+        </button>
+
         <div className="flex items-center gap-2">
           <span
             className="w-2 h-2 rounded-full flex-shrink-0"
@@ -238,6 +321,119 @@ function Sidebar() {
         </button>
       </div>
     </aside>
+
+    {/* Update Modal */}
+    {showUpdateModal && (
+      <div
+        className="fixed inset-0 z-[200] flex items-end justify-start"
+        style={{ paddingLeft: collapsed ? '72px' : '184px', paddingBottom: '16px' }}
+        onClick={(e) => { if (e.target === e.currentTarget) setShowUpdateModal(false) }}
+      >
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{
+            width: '400px',
+            background: '#080a0f',
+            border: '1px solid #1a2535',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+          }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #111820' }}>
+            <div className="flex items-center gap-2">
+              <RefreshCw size={13} style={{ color: '#00e5ff' }} />
+              <span className="font-orbitron font-bold" style={{ fontSize: '11px', letterSpacing: '0.1em', color: '#00e5ff' }}>
+                SYSTEM UPDATE
+              </span>
+              {updateAvailable && (
+                <span className="px-1.5 py-0.5 rounded font-orbitron" style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24', fontSize: '8px', border: '1px solid rgba(251,191,36,0.3)' }}>
+                  {updateBehind} NEW
+                </span>
+              )}
+            </div>
+            <button onClick={() => setShowUpdateModal(false)} style={{ color: '#374151' }} className="hover:text-gray-400">
+              <X size={14} />
+            </button>
+          </div>
+
+          {/* Status */}
+          {!updating && updateLogs.length === 0 && (
+            <div className="px-4 py-3">
+              {updateAvailable ? (
+                <div className="mb-3 p-2.5 rounded" style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)' }}>
+                  <div className="font-orbitron" style={{ fontSize: '9px', color: '#fbbf24', marginBottom: '4px' }}>
+                    ⬆ มี {updateBehind} commit ใหม่
+                  </div>
+                  {updateLatestMsg && (
+                    <div style={{ fontSize: '10px', color: '#6b7280' }}>{updateLatestMsg}</div>
+                  )}
+                </div>
+              ) : (
+                <div className="mb-3 p-2.5 rounded" style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                  <div className="font-orbitron" style={{ fontSize: '9px', color: '#22c55e' }}>
+                    ✓ ใช้ version ล่าสุดอยู่แล้ว
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={runUpdate}
+                className="w-full rounded py-2 font-orbitron transition-all"
+                style={{
+                  background: updateAvailable ? '#fbbf24' : '#0d1117',
+                  color: updateAvailable ? '#000' : '#374151',
+                  border: `1px solid ${updateAvailable ? '#fbbf24' : '#1a2535'}`,
+                  fontSize: '10px',
+                  letterSpacing: '0.08em',
+                  fontWeight: 'bold',
+                  cursor: updateAvailable ? 'pointer' : 'default',
+                }}
+              >
+                {updateAvailable ? '⬆ UPDATE NOW' : '🔄 CHECK AGAIN'}
+              </button>
+            </div>
+          )}
+
+          {/* Logs */}
+          {(updating || updateLogs.length > 0) && (
+            <div className="px-4 py-3">
+              <div
+                className="rounded p-3 font-mono overflow-y-auto"
+                style={{
+                  background: '#020408',
+                  border: '1px solid #0d1117',
+                  height: '220px',
+                  fontSize: '10px',
+                  lineHeight: '1.7',
+                }}
+              >
+                {updateLogs.map((l, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      color: l.type === 'error' ? '#ef4444' : l.type === 'warn' ? '#fbbf24' : l.type === 'done' ? '#22c55e' : '#9ca3af',
+                    }}
+                  >
+                    {l.msg}
+                  </div>
+                ))}
+                {updating && (
+                  <div style={{ color: '#00e5ff' }} className="animate-pulse">▋</div>
+                )}
+              </div>
+              {!updating && (
+                <button
+                  onClick={() => setUpdateLogs([])}
+                  className="w-full mt-2 rounded py-1.5 font-orbitron text-gray-500 hover:text-gray-400"
+                  style={{ border: '1px solid #1a2535', fontSize: '9px', background: '#0d1117' }}
+                >
+                  CLOSE
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    )}
   )
 }
 

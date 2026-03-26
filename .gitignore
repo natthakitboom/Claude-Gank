@@ -23,3 +23,4 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+installer/dist/
