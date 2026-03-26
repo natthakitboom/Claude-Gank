@@ -21,7 +21,13 @@ interface NotifyConfig {
   notify_on_done: number; notify_on_failed: number; notify_on_skill_update: number
 }
 
-type Tab = 'agents' | 'skills' | 'memory' | 'notify' | 'info'
+interface DeployConfig {
+  host: string; port: number; username: string
+  auth_method: string; ssh_key_path: string; ssh_password: string
+  domain: string; deploy_path: string; ssl_mode: string; cloudflare_proxy: number
+}
+
+type Tab = 'agents' | 'skills' | 'memory' | 'notify' | 'deploy' | 'info'
 
 export default function SystemPage() {
   const [tab, setTab] = useState<Tab>('agents')
@@ -31,6 +37,14 @@ export default function SystemPage() {
   const [stats, setStats] = useState<any>(null)
   const [notifyConfigs, setNotifyConfigs] = useState<NotifyConfig[]>([])
   const [testResult, setTestResult] = useState('')
+
+  // Deploy state
+  const [deployConfig, setDeployConfig] = useState<DeployConfig>({ host: '', port: 22, username: 'root', auth_method: 'sshkey', ssh_key_path: '~/.ssh/id_rsa', ssh_password: '', domain: '', deploy_path: '/apps', ssl_mode: 'cloudflare', cloudflare_proxy: 1 })
+  const [deploySaving, setDeploySaving] = useState(false)
+  const [deploySaved, setDeploySaved] = useState(false)
+  const [deployTesting, setDeployTesting] = useState(false)
+  const [deployTestResult, setDeployTestResult] = useState<{ ok: boolean; uname?: string; docker?: string; memory?: string; disk?: string; error?: string } | null>(null)
+  const [deployProjects, setDeployProjects] = useState<{ id: string; name: string; work_dir: string }[]>([])
 
   // Skills state
   const [filterCat, setFilterCat] = useState('all')
@@ -48,6 +62,8 @@ export default function SystemPage() {
     fetch('/api/skills').then((r) => r.json()).then(setSkills)
     fetch('/api/stats').then((r) => r.json()).then(setStats)
     fetch('/api/notify').then((r) => r.json()).then(setNotifyConfigs)
+    fetch('/api/deploy/config').then((r) => r.json()).then((d) => { if (d.host !== undefined) setDeployConfig(d) })
+    fetch('/api/projects').then((r) => r.json()).then((d) => setDeployProjects(Array.isArray(d) ? d : []))
   }, [])
 
   useEffect(() => {
@@ -119,6 +135,27 @@ export default function SystemPage() {
     setMemories(await (await fetch(filterAgent === 'all' ? '/api/memory' : `/api/memory?agent_id=${filterAgent}`)).json())
   }
 
+  const saveDeployConfig = async () => {
+    setDeploySaving(true)
+    await fetch('/api/deploy/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(deployConfig) })
+    setDeploySaving(false)
+    setDeploySaved(true)
+    setTimeout(() => setDeploySaved(false), 2000)
+  }
+
+  const testDeployConnection = async () => {
+    setDeployTesting(true)
+    setDeployTestResult(null)
+    try {
+      const res = await fetch('/api/deploy/test', { method: 'POST' })
+      const data = await res.json()
+      setDeployTestResult(data)
+    } catch (e: any) {
+      setDeployTestResult({ ok: false, error: e.message })
+    }
+    setDeployTesting(false)
+  }
+
   const impColor = (n: number) => n >= 8 ? '#ef4444' : n >= 6 ? '#f59e0b' : n >= 4 ? '#2d7fff' : '#374151'
   const categories = ['all', ...Array.from(new Set(skills.map((s) => s.category)))]
   const filteredSkills = filterCat === 'all' ? skills : skills.filter((s) => s.category === filterCat)
@@ -133,7 +170,7 @@ export default function SystemPage() {
 
       {/* Tabs */}
       <div className="flex gap-0 border-b mb-6" style={{ borderColor: '#111820' }}>
-        {([['agents', 'AGENTS'], ['skills', 'SKILLS'], ['memory', 'MEMORY'], ['notify', '🔔 NOTIFY'], ['info', 'SYSTEM INFO']] as [Tab, string][]).map(([key, label]) => (
+        {([['agents', 'AGENTS'], ['skills', 'SKILLS'], ['memory', 'MEMORY'], ['notify', '🔔 NOTIFY'], ['deploy', '🚀 DEPLOY'], ['info', 'SYSTEM INFO']] as [Tab, string][]).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} className={`gank-tab ${tab === key ? 'active' : ''}`}>{label}</button>
         ))}
       </div>
@@ -645,6 +682,330 @@ export default function SystemPage() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ════════ DEPLOY TAB ════════ */}
+      {tab === 'deploy' && (
+        <div className="max-w-3xl space-y-6">
+          <div className="font-orbitron mb-2" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>
+            VPS DEPLOY SETTINGS — ตั้งค่าครั้งเดียว ใช้ deploy ทุก project ด้วยปุ่มเดียว
+          </div>
+
+          {/* Connection Settings */}
+          <div className="rounded-xl p-5 space-y-4" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+            <div className="font-orbitron font-bold text-white flex items-center gap-2" style={{ fontSize: '12px', letterSpacing: '0.05em' }}>
+              <span style={{ color: '#00e5ff' }}>01</span> SERVER CONNECTION
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>HOST / IP ADDRESS *</label>
+                <input
+                  type="text"
+                  value={deployConfig.host}
+                  onChange={e => setDeployConfig(c => ({ ...c, host: e.target.value }))}
+                  placeholder="203.154.xx.xx"
+                  className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1"
+                  style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                />
+              </div>
+              <div>
+                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>SSH PORT</label>
+                <input
+                  type="number"
+                  value={deployConfig.port}
+                  onChange={e => setDeployConfig(c => ({ ...c, port: Number(e.target.value) }))}
+                  className="w-full rounded px-3 py-2 font-mono text-sm text-white focus:outline-none focus:ring-1"
+                  style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                />
+              </div>
+            </div>
+
+            {/* Auth method toggle */}
+            <div>
+              <label className="font-orbitron block mb-2" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>AUTHENTICATION METHOD</label>
+              <div className="flex gap-2">
+                {[{ v: 'sshkey', label: '🔑 SSH KEY', desc: 'Key file' }, { v: 'password', label: '🔒 PASSWORD', desc: 'Username + Pass' }].map(opt => (
+                  <button
+                    key={opt.v}
+                    onClick={() => setDeployConfig(c => ({ ...c, auth_method: opt.v }))}
+                    className="flex-1 rounded-lg px-4 py-2.5 text-left transition-all"
+                    style={{
+                      background: deployConfig.auth_method === opt.v ? 'rgba(0,229,255,0.08)' : '#0d1117',
+                      border: `1px solid ${deployConfig.auth_method === opt.v ? 'rgba(0,229,255,0.35)' : '#1a2535'}`,
+                    }}
+                  >
+                    <div className="font-orbitron font-bold" style={{ fontSize: '10px', color: deployConfig.auth_method === opt.v ? '#00e5ff' : '#64748b', letterSpacing: '0.05em' }}>{opt.label}</div>
+                    <div className="font-mono" style={{ fontSize: '9px', color: '#374151', marginTop: 2 }}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>USERNAME</label>
+                <input
+                  type="text"
+                  value={deployConfig.username}
+                  onChange={e => setDeployConfig(c => ({ ...c, username: e.target.value }))}
+                  placeholder="root"
+                  className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                  style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                />
+              </div>
+              {deployConfig.auth_method === 'password' ? (
+                <div>
+                  <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>PASSWORD</label>
+                  <input
+                    type="password"
+                    value={deployConfig.ssh_password}
+                    onChange={e => setDeployConfig(c => ({ ...c, ssh_password: e.target.value }))}
+                    placeholder="••••••••"
+                    className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                    style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>SSH KEY PATH</label>
+                  <input
+                    type="text"
+                    value={deployConfig.ssh_key_path}
+                    onChange={e => setDeployConfig(c => ({ ...c, ssh_key_path: e.target.value }))}
+                    placeholder="~/.ssh/id_rsa"
+                    className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                    style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Domain & SSL */}
+          <div className="rounded-xl p-5 space-y-4" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+            <div className="font-orbitron font-bold text-white flex items-center gap-2" style={{ fontSize: '12px', letterSpacing: '0.05em' }}>
+              <span style={{ color: '#00e5ff' }}>02</span> DOMAIN & SSL
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>DOMAIN NAME *</label>
+                <input
+                  type="text"
+                  value={deployConfig.domain}
+                  onChange={e => setDeployConfig(c => ({ ...c, domain: e.target.value }))}
+                  placeholder="myapp.com"
+                  className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                  style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                />
+                <div className="mt-1" style={{ fontSize: '8px', color: '#374151' }}>
+                  *.domain → wildcard subdomain (leave.myapp.com, booking.myapp.com)
+                </div>
+              </div>
+              <div>
+                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>BASE DIRECTORY ON VPS</label>
+                <input
+                  type="text"
+                  value={deployConfig.deploy_path}
+                  onChange={e => setDeployConfig(c => ({ ...c, deploy_path: e.target.value }))}
+                  placeholder="/apps"
+                  className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                  style={{ background: '#0d1117', border: '1px solid #1a2535' }}
+                />
+                <div className="mt-1" style={{ fontSize: '8px', color: '#374151' }}>
+                  แต่ละ project จะอยู่ใน {deployConfig.deploy_path || '/apps'}/<span style={{ color: '#00e5ff' }}>project-slug</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Project deployment preview */}
+            {deployProjects.length > 0 && (
+              <div>
+                <div className="font-orbitron mb-2 flex items-center gap-2" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>
+                  PROJECTS — AUTO-COMPUTED PATHS
+                  <span className="rounded px-1.5 py-0.5 font-mono" style={{ fontSize: '7px', background: 'rgba(0,229,255,0.08)', color: '#00e5ff', border: '1px solid rgba(0,229,255,0.15)' }}>
+                    {deployProjects.length} projects
+                  </span>
+                </div>
+                <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #1a2535' }}>
+                  <table className="w-full">
+                    <thead>
+                      <tr style={{ background: '#0a0f16' }}>
+                        <th className="text-left px-3 py-2 font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.08em' }}>PROJECT</th>
+                        <th className="text-left px-3 py-2 font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.08em' }}>VPS PATH</th>
+                        <th className="text-left px-3 py-2 font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.08em' }}>URL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deployProjects.map((p, i) => {
+                        const slug = p.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+                        const vpsPath = `${deployConfig.deploy_path || '/apps'}/${slug}`
+                        const url = deployConfig.domain ? `${slug}.${deployConfig.domain}` : '—'
+                        return (
+                          <tr key={p.id} style={{ borderTop: i > 0 ? '1px solid #0d1117' : undefined, background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                            <td className="px-3 py-2">
+                              <span className="font-mono text-xs text-white">{p.name}</span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="font-mono" style={{ fontSize: '11px', color: '#22c55e' }}>{vpsPath}</span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="font-mono" style={{ fontSize: '11px', color: deployConfig.domain ? '#00e5ff' : '#374151' }}>
+                                {deployConfig.ssl_mode !== 'none' && deployConfig.domain ? 'https://' : ''}{url}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-1.5" style={{ fontSize: '7px', color: '#374151' }}>
+                  ⚡ ระบบจะสร้าง directory + Nginx config + SSL ให้อัตโนมัติตาม path ด้านบน
+                </div>
+              </div>
+            )}
+
+            {deployProjects.length === 0 && (
+              <div className="rounded-lg p-4 text-center" style={{ background: '#0d1117', border: '1px solid #1a2535' }}>
+                <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151' }}>ยังไม่มี Projects — ไปสร้างที่ Projects menu ก่อน</div>
+              </div>
+            )}
+
+            <div>
+              <label className="font-orbitron block mb-2" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>SSL MODE</label>
+              <div className="flex gap-2">
+                {[
+                  { value: 'cloudflare', label: '☁️ CLOUDFLARE', desc: 'SSL ผ่าน Cloudflare Proxy (แนะนำ)' },
+                  { value: 'letsencrypt', label: '🔒 LET\'S ENCRYPT', desc: 'Auto-renew SSL cert บน VPS' },
+                  { value: 'none', label: '🚫 NONE', desc: 'HTTP only (dev/internal)' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setDeployConfig(c => ({ ...c, ssl_mode: opt.value }))}
+                    className="flex-1 rounded-lg p-3 text-left transition-all"
+                    style={{
+                      background: deployConfig.ssl_mode === opt.value ? 'rgba(0,229,255,0.08)' : '#0d1117',
+                      border: `1px solid ${deployConfig.ssl_mode === opt.value ? 'rgba(0,229,255,0.3)' : '#1a2535'}`,
+                    }}
+                  >
+                    <div className="font-orbitron text-white" style={{ fontSize: '10px', letterSpacing: '0.05em' }}>{opt.label}</div>
+                    <div style={{ fontSize: '8px', color: '#4a5568', marginTop: 2 }}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {deployConfig.ssl_mode === 'cloudflare' && (
+              <div className="rounded-lg p-3 flex items-center gap-3" style={{ background: '#0d1117', border: '1px solid #1a2535' }}>
+                <label className="flex items-center gap-2 cursor-pointer flex-1">
+                  <input
+                    type="checkbox"
+                    checked={!!deployConfig.cloudflare_proxy}
+                    onChange={e => setDeployConfig(c => ({ ...c, cloudflare_proxy: e.target.checked ? 1 : 0 }))}
+                    className="rounded"
+                  />
+                  <span className="font-orbitron text-white" style={{ fontSize: '10px' }}>Cloudflare Proxy 🟠 (CDN + DDoS Protection + Hide IP)</span>
+                </label>
+              </div>
+            )}
+          </div>
+
+          {/* How it works */}
+          <div className="rounded-xl p-5" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+            <div className="font-orbitron font-bold text-white flex items-center gap-2 mb-3" style={{ fontSize: '12px', letterSpacing: '0.05em' }}>
+              <span style={{ color: '#00e5ff' }}>03</span> HOW IT WORKS
+            </div>
+            <div className="grid grid-cols-5 gap-3">
+              {[
+                { step: '1', icon: '📦', label: 'RSYNC', desc: 'Upload project files' },
+                { step: '2', icon: '🐳', label: 'DOCKER', desc: 'Build & start containers' },
+                { step: '3', icon: '🌐', label: 'NGINX', desc: 'Auto reverse proxy' },
+                { step: '4', icon: '🔒', label: 'SSL', desc: deployConfig.ssl_mode === 'cloudflare' ? 'Cloudflare auto' : deployConfig.ssl_mode === 'letsencrypt' ? 'Certbot auto' : 'HTTP only' },
+                { step: '5', icon: '✅', label: 'LIVE', desc: 'subdomain.domain' },
+              ].map(s => (
+                <div key={s.step} className="text-center rounded-lg p-3" style={{ background: '#0d1117', border: '1px solid #1a2535' }}>
+                  <div style={{ fontSize: '20px' }}>{s.icon}</div>
+                  <div className="font-orbitron text-white mt-1" style={{ fontSize: '9px', letterSpacing: '0.05em' }}>{s.label}</div>
+                  <div style={{ fontSize: '7px', color: '#4a5568', marginTop: 2 }}>{s.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={saveDeployConfig}
+              disabled={deploySaving}
+              className="font-orbitron px-5 py-2.5 rounded-lg font-semibold transition-all"
+              style={{ fontSize: '11px', letterSpacing: '0.05em', background: 'rgba(0,229,255,0.15)', border: '1px solid rgba(0,229,255,0.3)', color: '#00e5ff' }}
+            >
+              {deploySaving ? '⏳ SAVING...' : deploySaved ? '✅ SAVED!' : '💾 SAVE SETTINGS'}
+            </button>
+            <button
+              onClick={testDeployConnection}
+              disabled={deployTesting || !deployConfig.host}
+              className="font-orbitron px-5 py-2.5 rounded-lg font-semibold transition-all"
+              style={{
+                fontSize: '11px', letterSpacing: '0.05em',
+                background: deployConfig.host ? 'rgba(34,197,94,0.15)' : '#0d1117',
+                border: `1px solid ${deployConfig.host ? 'rgba(34,197,94,0.3)' : '#1a2535'}`,
+                color: deployConfig.host ? '#22c55e' : '#374151',
+                cursor: deployConfig.host ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {deployTesting ? '⏳ CONNECTING...' : '🔌 TEST CONNECTION'}
+            </button>
+          </div>
+
+          {/* Test result */}
+          {deployTestResult && (
+            <div
+              className="rounded-xl p-4"
+              style={{
+                background: deployTestResult.ok ? 'rgba(34,197,94,0.05)' : 'rgba(239,68,68,0.05)',
+                border: `1px solid ${deployTestResult.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`,
+              }}
+            >
+              {deployTestResult.ok ? (
+                <div className="space-y-2">
+                  <div className="font-orbitron font-bold flex items-center gap-2" style={{ fontSize: '12px', color: '#22c55e' }}>
+                    ✅ CONNECTION SUCCESSFUL
+                  </div>
+                  <div className="font-mono text-xs space-y-1" style={{ color: '#94a3b8' }}>
+                    <div><span style={{ color: '#4a5568' }}>OS:</span> {deployTestResult.uname}</div>
+                    <div><span style={{ color: '#4a5568' }}>Docker:</span> {deployTestResult.docker}</div>
+                    <div><span style={{ color: '#4a5568' }}>Memory:</span> {deployTestResult.memory}</div>
+                    <div><span style={{ color: '#4a5568' }}>Disk:</span> {deployTestResult.disk}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="font-orbitron font-bold flex items-center gap-2" style={{ fontSize: '12px', color: '#ef4444' }}>
+                    ❌ CONNECTION FAILED
+                  </div>
+                  <div className="font-mono text-xs" style={{ color: '#f87171' }}>{deployTestResult.error}</div>
+                  <div style={{ fontSize: '9px', color: '#4a5568', marginTop: 4 }}>
+                    ตรวจสอบ: IP ถูกต้อง? Auth method ถูกต้อง? Port 22 เปิดอยู่? VPS firewall อนุญาต SSH?
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* DNS Reminder */}
+          <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px dashed #1e2d40' }}>
+            <div className="font-orbitron mb-2" style={{ fontSize: '9px', color: '#f59e0b', letterSpacing: '0.08em' }}>⚠️ CLOUDFLARE DNS — ตั้งค่าครั้งเดียว</div>
+            <div className="font-mono text-xs space-y-1" style={{ color: '#64748b' }}>
+              <div>1. Cloudflare Dashboard → DNS → Add Record</div>
+              <div>2. <span style={{ color: '#00e5ff' }}>A</span> | <span style={{ color: '#00e5ff' }}>@</span> | <span style={{ color: '#22c55e' }}>{deployConfig.host || '<VPS_IP>'}</span> | Proxy 🟠</div>
+              <div>3. <span style={{ color: '#00e5ff' }}>A</span> | <span style={{ color: '#00e5ff' }}>*</span> | <span style={{ color: '#22c55e' }}>{deployConfig.host || '<VPS_IP>'}</span> | Proxy 🟠 (Wildcard)</div>
+              <div>4. SSL/TLS → <span style={{ color: '#22c55e' }}>Full</span></div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -4,13 +4,13 @@ import './globals.css'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { Users, Crosshair, Radio, Flag, Cpu, ChevronLeft, CalendarClock, FolderOpen, MessageCircle, Monitor, GitBranch } from 'lucide-react'
+import { Users, Crosshair, Radio, Flag, Cpu, ChevronLeft, CalendarClock, FolderOpen, MessageCircle, BarChart2, GitBranch } from 'lucide-react'
 import { LanguageProvider, useLanguage } from '@/lib/i18n'
 
 const NAV_KEYS = [
   { href: '/agents',   key: 'nav_agents',   Icon: Users },
   { href: '/warroom',  key: 'nav_warroom',  Icon: Crosshair },
-  { href: '/monitor',  key: 'nav_monitor',  Icon: Monitor },
+  { href: '/usage',  key: 'nav_usage',  Icon: BarChart2 },
   { href: '/comms',    key: 'nav_comms',    Icon: Radio },
   { href: '/chat',     key: 'nav_chat',     Icon: MessageCircle },
   { href: '/missions', key: 'nav_missions', Icon: Flag },
@@ -53,19 +53,43 @@ function Sidebar() {
       {/* Logo */}
       <div className="px-4 py-5 border-b" style={{ borderColor: '#111820' }}>
         <div className="flex items-center gap-3">
-          <div
-            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded text-xl"
-            style={{ background: '#0f1420', border: '1px solid #1a2535' }}
-          >
-            👾
+          {/* CG Logo */}
+          <div className="flex-shrink-0 w-9 h-9 rounded flex items-center justify-center" style={{ background: '#0a0e18', border: '1px solid #1a2535' }}>
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+              <defs>
+                <filter id="cglow">
+                  <feGaussianBlur stdDeviation="1.2" result="blur"/>
+                  <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+                <linearGradient id="cgrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#00e5ff"/>
+                  <stop offset="100%" stopColor="#0077ff"/>
+                </linearGradient>
+              </defs>
+              {/* Outer hexagon */}
+              <polygon
+                points="14,2 24,7.5 24,18.5 14,24 4,18.5 4,7.5"
+                fill="none" stroke="#00e5ff" strokeWidth="0.8" strokeOpacity="0.25"
+              />
+              {/* Inner hex filled */}
+              <polygon
+                points="14,5 21,9 21,17 14,21 7,17 7,9"
+                fill="url(#cgrad)" fillOpacity="0.07"
+                stroke="#00e5ff" strokeWidth="0.6" strokeOpacity="0.5"
+              />
+              {/* CG text */}
+              <text x="9" y="17" fill="#00e5ff" fontSize="8" fontFamily="monospace" fontWeight="bold" filter="url(#cglow)">CG</text>
+              {/* slash accent */}
+              <line x1="13.5" y1="8" x2="11" y2="20" stroke="#00e5ff" strokeWidth="0.6" strokeOpacity="0.3"/>
+            </svg>
           </div>
           {!collapsed && (
             <div>
-              <div className="font-orbitron text-xs font-bold leading-tight">
-                <span className="text-white">CLAUDE </span>
-                <span style={{ color: '#00e5ff' }}>GANK</span>
+              <div className="font-orbitron font-bold leading-tight">
+                <div style={{ fontSize: '9px', letterSpacing: '0.06em', color: '#64748b' }}>CLAUDE</div>
+                <div style={{ fontSize: '13px', letterSpacing: '0.1em', color: '#00e5ff' }}>GANG</div>
               </div>
-              <div className="font-orbitron text-gray-600" style={{ fontSize: '8px', letterSpacing: '0.12em' }}>
+              <div className="font-orbitron text-gray-600" style={{ fontSize: '7px', letterSpacing: '0.12em', marginTop: '1px' }}>
                 {t('cmd_center')}
               </div>
             </div>
@@ -201,7 +225,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="th">
       <head>
-        <title>CLAUDE GANK — Command Center</title>
+        <title>CLAUDE GANG — Command Center</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body>

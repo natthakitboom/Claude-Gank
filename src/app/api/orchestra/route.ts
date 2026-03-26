@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
-import { matchAgent } from '@/lib/agents'
 import { v4 as uuidv4 } from 'uuid'
 import fs from 'fs'
 import path from 'path'
@@ -100,6 +99,10 @@ ${roster}
 2. แต่ละ task ต้องมี description ที่ละเอียดพอให้ agent ทำได้ทันที
 3. ใช้ชื่อ agent ตรงตามรายชื่อข้างต้น (ใช้ field "name" ของ agent)
 4. ต้องมี ---TASKS--- block เสมอ ไม่ว่างานจะใหญ่หรือเล็ก
+5. **[Integration task บังคับ]** ทุกโปรเจคต้องมี Integration task เป็น task สุดท้าย (phase สูงสุด) โดย:
+   - docker-compose.yml ต้องมีครบ 3 services: **web** (Dockerfile build) + **cloudbeaver** (DB admin UI, dbeaver/cloudbeaver:latest, port 8978) + **postgres** (database)
+   - Integration agent ต้องสร้าง/ตรวจสอบ/แก้ไข docker-compose.yml ให้ครบและ build ได้จริง
+   - ผลลัพธ์ต้องมี Access Info ครบ: Web App URL, DB Admin URL, PostgreSQL credentials
 
 ตัวอย่าง output:
 ---TASKS---
@@ -150,51 +153,28 @@ ${roster}
     output = m?.output || ''
   }
 
-  // 7. Parse ---TASKS--- block
-  const tasksMatch = output.match(/---TASKS---\s*([\s\S]*?)\s*---END---/)
-  if (!tasksMatch) {
-    return NextResponse.json({ ok: true, projectMissionId: parentId, subMissions: [], parsed: false, note: 'No TASKS block found in output' })
-  }
-
-  let tasks: any[] = []
+  // 7. Update project name from เลขา's parsed output if available
   try {
-    const jsonStr = tasksMatch[1].trim().replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '')
-    const parsed = JSON.parse(jsonStr)
-    tasks = parsed.tasks || []
-  } catch {
-    return NextResponse.json({ ok: true, projectMissionId: parentId, subMissions: [], parsed: false })
-  }
-
-  // 8. Create + execute sub-missions — inject workDir into every description
-  const subMissions: any[] = []
-  for (const task of tasks) {
-    const agent = matchAgent(agents, task.agent_name)
-    if (!agent) continue
-
-    const subId = `mission-${uuidv4().slice(0, 8)}`
-    const subDescription = `## 📁 Work Directory\nบันทึกไฟล์ทั้งหมดไว้ที่: \`${workDir}\`\n\n${task.description}`
-
-    db.prepare(`
-      INSERT INTO missions (id, title, description, agent_id, priority, status, parent_mission_id)
-      VALUES (?, ?, ?, ?, ?, 'pending', ?)
-    `).run(subId, task.title, subDescription, agent.id, task.priority || priority, parentId)
-
-    subMissions.push({ id: subId, title: task.title, agent_id: agent.id, agent_name: agent.name })
-
-    // Fire execute (non-blocking)
-    fetch(`${BASE_URL}/api/missions/${subId}/execute`, { method: 'POST' }).catch((e) => console.error('[orchestra] spawn failed for sub-mission', subId, e.message))
-  }
-
-  // Update project name from เลขา's parsed output if available
-  try {
-    const m = output.match(/---TASKS---\s*([\s\S]*?)\s*---END---/)
-    if (m) {
-      const j = JSON.parse(m[1].trim().replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, ''))
+    const tasksMatch = output.match(/---TASKS---\s*([\s\S]*?)\s*---END---/)
+    if (tasksMatch) {
+      const j = JSON.parse(tasksMatch[1].trim().replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, ''))
       if (j.project) {
         db.prepare(`UPDATE projects SET name = ? WHERE id = ?`).run(String(j.project).slice(0, 100), projectId)
       }
     }
   } catch {}
+
+  // 8. Sub-missions were already spawned by spawnSecretarySubMissions() inside execute/route.ts.
+  //    Just read them from DB — do NOT create a second set here.
+  const subMissions = (db.prepare(`
+    SELECT m.id, m.title, m.status, m.phase, a.name as agent_name
+    FROM missions m
+    LEFT JOIN agents a ON m.agent_id = a.id
+    WHERE m.parent_mission_id = ?
+    ORDER BY m.phase, m.created_at
+  `).all(parentId) as any[]).map((m: any) => ({
+    id: m.id, title: m.title, status: m.status, phase: m.phase, agent_name: m.agent_name,
+  }))
 
   return NextResponse.json({
     ok: true,
@@ -203,5 +183,6 @@ ${roster}
     workDir,
     subMissions,
     tasksCreated: subMissions.length,
+    parsed: output.includes('---TASKS---'),
   })
 }

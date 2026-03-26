@@ -19,6 +19,19 @@ function getDb(): Database.Database {
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
     initializeSchema(db)
+    // Boot-time cleanup: any mission still 'running' = server was killed mid-execution
+    try {
+      const cleaned = db.prepare(`
+        UPDATE missions
+        SET status = 'failed',
+            error  = 'Server restarted while mission was running'
+        WHERE status = 'running'
+      `).run()
+      if (cleaned.changes > 0) {
+        console.log(`[boot] ⚡ Reset ${cleaned.changes} mission(s) stuck in 'running' after server restart`)
+      }
+    } catch {}
+    // Note: interval watchdog is in /api/missions GET handler (setInterval unreliable in Next.js dev)
   }
   return db
 }
@@ -187,7 +200,7 @@ function initializeSchema(db: Database.Database) {
     );
   `)
   // Migration: add agent_filter_json if missing
-  try { db.exec("ALTER TABLE notification_config ADD COLUMN agent_filter_json TEXT DEFAULT '[]'") } catch {}
+  ensureColumn(db, 'notification_config', 'agent_filter_json', "TEXT DEFAULT '[]'")
 
   // SDLC config table
   db.exec(`
@@ -197,6 +210,29 @@ function initializeSchema(db: Database.Database) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  // Deploy settings table — VPS connection info for one-click deploy
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS deploy_config (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      host TEXT NOT NULL DEFAULT '',
+      port INTEGER NOT NULL DEFAULT 22,
+      username TEXT NOT NULL DEFAULT 'root',
+      auth_method TEXT NOT NULL DEFAULT 'sshkey',
+      ssh_key_path TEXT NOT NULL DEFAULT '~/.ssh/id_rsa',
+      ssh_password TEXT NOT NULL DEFAULT '',
+      domain TEXT NOT NULL DEFAULT '',
+      deploy_path TEXT NOT NULL DEFAULT '/apps',
+      ssl_mode TEXT NOT NULL DEFAULT 'cloudflare',
+      cloudflare_proxy INTEGER NOT NULL DEFAULT 1,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  // Seed default row if not exists
+  db.exec(`INSERT OR IGNORE INTO deploy_config (id) VALUES ('default')`)
+  // Migrate: add auth columns if missing (for existing DBs)
+  try { db.exec(`ALTER TABLE deploy_config ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'sshkey'`) } catch {}
+  try { db.exec(`ALTER TABLE deploy_config ADD COLUMN ssh_password TEXT NOT NULL DEFAULT ''`) } catch {}
   // Seed default SDLC config — always update to latest spec
   db.prepare(`INSERT OR REPLACE INTO sdlc_config (id, config_json, updated_at) VALUES ('default', ?, CURRENT_TIMESTAMP)`).run(JSON.stringify({
     name: 'Quality-First Multi-Agent SDLC',
@@ -586,36 +622,37 @@ function initializeSchema(db: Database.Database) {
   })
   insertTechTpls(techTemplates)
 
-  // Migrations for new columns
-  try { db.exec(`ALTER TABLE missions ADD COLUMN scheduled_at TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN job_id TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN parent_mission_id TEXT REFERENCES missions(id)`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN escalation_level INTEGER DEFAULT 0`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN phase INTEGER DEFAULT 0`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN qa_round INTEGER DEFAULT 0`) } catch {}
-
-  // ── New SDLC fields ────────────────────────────────────────────────────────
-  try { db.exec(`ALTER TABLE missions ADD COLUMN trace_id TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN hop_count INTEGER DEFAULT 0`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN dedupe_key TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN retry_count INTEGER DEFAULT 0`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN version INTEGER DEFAULT 1`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN risk_level TEXT DEFAULT 'low'`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN owner TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN goal TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN acceptance_criteria_json TEXT DEFAULT '[]'`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN deliverables_json TEXT DEFAULT '[]'`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN constraints_json TEXT DEFAULT '[]'`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN dependencies_json TEXT DEFAULT '[]'`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN gate_status TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN gate_evidence_json TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE missions ADD COLUMN is_leader INTEGER DEFAULT 0`) } catch {}
-  try { db.exec(`ALTER TABLE agents ADD COLUMN is_leader INTEGER DEFAULT 0`) } catch {}
-  // Project access info
-  try { db.exec(`ALTER TABLE projects ADD COLUMN db_user TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE projects ADD COLUMN db_password TEXT`) } catch {}
-  // Demo accounts JSON (parsed from Phase 4 output)
-  try { db.exec(`ALTER TABLE projects ADD COLUMN demo_accounts_json TEXT`) } catch {}
+  // Idempotent column migrations — ensureColumn() is hoisted (function declaration)
+  // missions columns
+  ensureColumn(db, 'missions', 'scheduled_at',              'TEXT')
+  ensureColumn(db, 'missions', 'job_id',                    'TEXT')
+  ensureColumn(db, 'missions', 'parent_mission_id',         'TEXT')
+  ensureColumn(db, 'missions', 'escalation_level',          'INTEGER DEFAULT 0')
+  ensureColumn(db, 'missions', 'phase',                     'INTEGER')
+  ensureColumn(db, 'missions', 'qa_round',                  'INTEGER DEFAULT 0')
+  // SDLC / N2N fields
+  ensureColumn(db, 'missions', 'trace_id',                  'TEXT')
+  ensureColumn(db, 'missions', 'hop_count',                 'INTEGER DEFAULT 0')
+  ensureColumn(db, 'missions', 'dedupe_key',                'TEXT')
+  ensureColumn(db, 'missions', 'retry_count',               'INTEGER DEFAULT 0')
+  ensureColumn(db, 'missions', 'version',                   'INTEGER DEFAULT 1')
+  ensureColumn(db, 'missions', 'risk_level',                'TEXT DEFAULT \'low\'')
+  ensureColumn(db, 'missions', 'owner',                     'TEXT')
+  ensureColumn(db, 'missions', 'goal',                      'TEXT')
+  ensureColumn(db, 'missions', 'started_at',                'DATETIME')
+  ensureColumn(db, 'missions', 'acceptance_criteria_json',  'TEXT DEFAULT \'[]\'')
+  ensureColumn(db, 'missions', 'deliverables_json',         'TEXT DEFAULT \'[]\'')
+  ensureColumn(db, 'missions', 'constraints_json',          'TEXT DEFAULT \'[]\'')
+  ensureColumn(db, 'missions', 'dependencies_json',         'TEXT DEFAULT \'[]\'')
+  ensureColumn(db, 'missions', 'gate_status',               'TEXT')
+  ensureColumn(db, 'missions', 'gate_evidence_json',        'TEXT')
+  ensureColumn(db, 'missions', 'is_leader',                 'INTEGER DEFAULT 0')
+  // agents columns
+  ensureColumn(db, 'agents',   'is_leader',                 'INTEGER DEFAULT 0')
+  // projects columns
+  ensureColumn(db, 'projects', 'db_user',                   'TEXT')
+  ensureColumn(db, 'projects', 'db_password',               'TEXT')
+  ensureColumn(db, 'projects', 'demo_accounts_json',        'TEXT')
   // IDE chat history
   try { db.exec(`
     CREATE TABLE IF NOT EXISTS ide_chat_messages (
@@ -1154,6 +1191,15 @@ function seedInitialData(db: Database.Database) {
     }
   })
   insertSkillMany(skills)
+}
+
+// Idempotent column migration — only ALTER if column doesn't exist yet.
+// Shared by all routes so each uses the same pattern instead of try/catch ALTER TABLE.
+export function ensureColumn(db: Database.Database, table: string, column: string, type: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+  if (!cols.some(c => c.name === column)) {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`) } catch {}
+  }
 }
 
 export { getDb }

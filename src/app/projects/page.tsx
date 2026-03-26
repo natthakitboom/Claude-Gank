@@ -128,46 +128,24 @@ export default function ProjectsPage() {
   }
 
   async function stopDocker(p: Project) {
-    if (!p.work_dir) return
-    const f = p.docker_compose_path ? `-f "${p.docker_compose_path}"` : ''
+    if (!p.work_dir || !p.docker_compose_path) return
+    const f = `-f "${p.docker_compose_path}"`
     // use `stop -t 3` — force kill after 3s grace, faster than `down`, keeps volumes intact
     await runDocker(p, `docker compose ${f} stop -t 3`)
-    // re-verify actual status after stop completes
-    await checkDockerStatus(p)
+    // re-verify actual status via lightweight GET (does NOT kill any running process)
+    setTimeout(() => checkDockerStatus(p), 800)
   }
 
-  // Check actual docker container status for a project
+  // Check actual docker container status — uses dedicated GET endpoint (non-destructive,
+  // never kills a running exec stream unlike the POST /exec route).
   const checkDockerStatus = useCallback(async (p: Project) => {
-    // skip if no compose file, or if a docker command is actively running (would kill it!)
+    // skip if no compose file, or if a docker command is actively running
     if (!p.docker_compose_path || dockerRunningRef.current[p.id]) return
     try {
-      const f = p.docker_compose_path ? `-f "${p.docker_compose_path}"` : ''
-      const res = await fetch(`/api/projects/${p.id}/exec`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cmd: `docker compose ${f} ps -q --status running 2>/dev/null` }),
-      })
-      const reader = res.body?.getReader()
-      if (!reader) return
-      const decoder = new TextDecoder()
-      let output = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const text = decoder.decode(value)
-        const lines = text.split('\n').filter(l => l.startsWith('data: '))
-        for (const line of lines) {
-          try { const { text: t } = JSON.parse(line.slice(6)); output += t } catch {}
-        }
-      }
-      // filter out exec meta-lines like "[exit 0]", "[error: ...]"
-      // real container IDs are hex strings, never start with "["
-      const containerLines = output.split('\n').filter(l => {
-        const t = l.trim()
-        return t.length > 0 && !t.startsWith('[')
-      })
-      const isUp = containerLines.length > 0
-      setContainerUp(s => ({ ...s, [p.id]: isUp }))
+      const res = await fetch(`/api/projects/${p.id}/docker-status`, { method: 'GET' })
+      if (!res.ok) return
+      const { up } = await res.json() as { up: boolean; containers: string[] }
+      setContainerUp(s => ({ ...s, [p.id]: up }))
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -237,7 +215,7 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="p-6 space-y-6" style={{ maxWidth: 1100 }}>
+    <div className="p-6 space-y-6" style={{ maxWidth: '100%' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -313,7 +291,7 @@ export default function ProjectsPage() {
           </a>
         </div>
       ) : (
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           {projects.map(p => {
             const color = statusColor(p)
             const label = statusLabel(p)
@@ -481,12 +459,12 @@ export default function ProjectsPage() {
                     )}
                     {p.adminer_port && (
                       <a
-                        href={`http://localhost:${p.adminer_port}/?pgsql=db&username=property_user&db=property_platform`}
+                        href={`http://localhost:${p.adminer_port}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105"
                         style={{ background: '#0d0030', border: '1px solid #a855f740', color: '#a855f7' }}
-                        title={`DB Viewer — localhost:${p.adminer_port}`}
+                        title={`CloudBeaver — localhost:${p.adminer_port}`}
                       >
                         <Database size={11} />
                         DB :{p.adminer_port}
@@ -755,12 +733,12 @@ export default function ProjectsPage() {
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="font-orbitron text-xs text-gray-500 block mb-1" style={{ fontSize: '9px' }}>DB Admin Port</label>
+                    <label className="font-orbitron text-xs text-gray-500 block mb-1" style={{ fontSize: '9px' }}>CloudBeaver Port</label>
                     <input
                       type="number"
                       className="w-full rounded px-3 py-2 text-xs font-mono text-white"
                       style={{ background: '#070b10', border: '1px solid #1a2535', outline: 'none' }}
-                      placeholder="8080"
+                      placeholder="8978"
                       value={pathForm.adminer_port}
                       onChange={e => setPathForm(f => ({ ...f, adminer_port: e.target.value }))}
                     />

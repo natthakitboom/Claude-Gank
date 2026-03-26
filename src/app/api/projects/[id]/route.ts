@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
+import { getDb, ensureColumn } from '@/lib/db'
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
@@ -39,12 +39,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const text = phase4?.output || ''
     const demoAccountsJson = parseDemoAccountsJson(text)
 
-    try { db.exec('ALTER TABLE projects ADD COLUMN demo_accounts_json TEXT') } catch {}
+    ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
     db.prepare('UPDATE projects SET demo_accounts_json = ? WHERE id = ?').run(demoAccountsJson, params.id)
     return NextResponse.json({ ok: true, accounts: demoAccountsJson ? JSON.parse(demoAccountsJson) : [] })
   }
 
-  try { db.exec('ALTER TABLE projects ADD COLUMN demo_accounts_json TEXT') } catch {}
+  ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
 
   db.prepare(`
     UPDATE projects SET
