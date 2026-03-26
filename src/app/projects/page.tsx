@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { FolderOpen, Trash2, Settings, X, CheckCircle, Loader2, Circle, RefreshCw, GitBranch, Code2, Globe, Cpu, Database, Play, Square, ChevronDown, ChevronUp, User, Terminal, RotateCcw } from 'lucide-react'
+import { FolderOpen, Trash2, Settings, X, CheckCircle, Loader2, Circle, RefreshCw, GitBranch, Code2, Globe, Cpu, Database, Play, Square, ChevronDown, ChevronUp, User, Terminal, RotateCcw, Bug, Zap } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n'
 import { parseDemoAccounts } from '@/lib/parseAccounts'
 
@@ -87,6 +87,9 @@ export default function ProjectsPage() {
   const [dockerLog, setDockerLog] = useState<Record<string, string>>({})
   const [dockerRunning, setDockerRunning] = useState<Record<string, boolean>>({}) // CLI stream กำลังทำงาน
   const [containerUp, setContainerUp] = useState<Record<string, boolean>>({})    // containers ยัง up อยู่
+  const [auditRunning, setAuditRunning] = useState<Record<string, boolean>>({})
+  const [n2nRunning, setN2nRunning] = useState<Record<string, boolean>>({})
+  const [actionMsg, setActionMsg] = useState<Record<string, string>>({})
   const dockerTermRef = useRef<Record<string, HTMLDivElement | null>>({})
   const dockerLock = useRef<Set<string>>(new Set()) // prevent double-click before re-render
   const dockerRunningRef = useRef<Record<string, boolean>>({}) // live mirror of dockerRunning for callbacks
@@ -200,6 +203,52 @@ export default function ProjectsPage() {
       alert('Error: ' + e.message)
     }
     setDeletingId(null)
+  }
+
+  async function handleAudit(p: Project) {
+    if (auditRunning[p.id]) return
+    setAuditRunning(s => ({ ...s, [p.id]: true }))
+    setActionMsg(s => ({ ...s, [p.id]: '🔍 กำลังสร้าง Audit mission...' }))
+    try {
+      const res = await fetch(`/api/projects/${p.id}/audit`, { method: 'POST' })
+      const data = await res.json()
+      if (data.ok) {
+        setActionMsg(s => ({ ...s, [p.id]: `✅ Audit mission: ${data.missionId}` }))
+        setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 5000)
+      } else {
+        setActionMsg(s => ({ ...s, [p.id]: `❌ ${data.error}` }))
+        setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 4000)
+      }
+    } catch (e: any) {
+      setActionMsg(s => ({ ...s, [p.id]: `❌ ${e.message}` }))
+      setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 4000)
+    }
+    setAuditRunning(s => ({ ...s, [p.id]: false }))
+  }
+
+  async function handleN2n(p: Project) {
+    if (n2nRunning[p.id]) return
+    setN2nRunning(s => ({ ...s, [p.id]: true }))
+    setActionMsg(s => ({ ...s, [p.id]: '⚡ เลขากำลังวิเคราะห์งานซ่อม...' }))
+    try {
+      const res = await fetch(`/api/projects/${p.id}/n2n`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setActionMsg(s => ({ ...s, [p.id]: `✅ N2N dispatched: ${data.missionId}` }))
+        setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 5000)
+      } else {
+        setActionMsg(s => ({ ...s, [p.id]: `❌ ${data.error}` }))
+        setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 4000)
+      }
+    } catch (e: any) {
+      setActionMsg(s => ({ ...s, [p.id]: `❌ ${e.message}` }))
+      setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 4000)
+    }
+    setN2nRunning(s => ({ ...s, [p.id]: false }))
   }
 
   async function handleSetPath(p: Project) {
@@ -663,41 +712,91 @@ export default function ProjectsPage() {
                 })()}
 
                 {/* Footer */}
-                <div className="flex items-center justify-between pt-1" style={{ borderTop: '1px solid #111820' }}>
-                  <span className="font-mono text-xs text-gray-600">
-                    {new Date(p.created_at).toLocaleDateString('th-TH')}
-                  </span>
-                  <div className="flex gap-2">
-                    <a
-                      href={`/projects/${p.id}`}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold transition-colors"
-                      style={{ background: '#001a2e', border: '1px solid #00e5ff30', color: '#00e5ff' }}
-                      title={t('ide')}
-                    >
-                      <Code2 size={11} />
-                      {t('ide')}
-                    </a>
+                <div className="space-y-2 pt-1" style={{ borderTop: '1px solid #111820' }}>
+                  {/* Action buttons row */}
+                  <div className="flex gap-1.5">
                     <button
-                      onClick={() => handleSetPath(p)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:text-white"
-                      style={{ color: '#6b7280' }}
-                    >
-                      <Settings size={11} />
-                      {t('path')}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(p)}
-                      disabled={isDeleting}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors"
+                      onClick={() => handleAudit(p)}
+                      disabled={!!auditRunning[p.id]}
+                      title="ให้ QA Agent ตรวจสอบโค้ดและหา bug แล้วส่งงานซ่อมอัตโนมัติ"
+                      className="flex items-center gap-1 px-2 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105 flex-1 justify-center"
                       style={{
-                        background: '#1a0a0a',
-                        border: '1px solid #3a1515',
-                        color: isDeleting ? '#6b7280' : '#ff4d4f',
+                        background: auditRunning[p.id] ? '#1a100a' : '#1a0d00',
+                        border: `1px solid ${auditRunning[p.id] ? '#78350f40' : '#f97316aa'}`,
+                        color: auditRunning[p.id] ? '#78350f' : '#fb923c',
+                        cursor: auditRunning[p.id] ? 'not-allowed' : 'pointer',
                       }}
                     >
-                      {isDeleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
-                      {isDeleting ? t('deleting') : t('delete')}
+                      {auditRunning[p.id] ? <Loader2 size={11} className="animate-spin" /> : <Bug size={11} />}
+                      <span className="font-orbitron" style={{ fontSize: '9px', letterSpacing: '0.06em' }}>AUDIT</span>
                     </button>
+                    <button
+                      onClick={() => handleN2n(p)}
+                      disabled={!!n2nRunning[p.id]}
+                      title="ให้เลขาวิเคราะห์ปัญหาและส่งงานซ่อมให้ทีมอัตโนมัติ"
+                      className="flex items-center gap-1 px-2 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105 flex-1 justify-center"
+                      style={{
+                        background: n2nRunning[p.id] ? '#0a1a1a' : '#001a1a',
+                        border: `1px solid ${n2nRunning[p.id] ? '#0891b240' : '#06b6d4aa'}`,
+                        color: n2nRunning[p.id] ? '#0891b2' : '#22d3ee',
+                        cursor: n2nRunning[p.id] ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {n2nRunning[p.id] ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+                      <span className="font-orbitron" style={{ fontSize: '9px', letterSpacing: '0.06em' }}>N2N FIX</span>
+                    </button>
+                  </div>
+                  {/* Action status message */}
+                  {actionMsg[p.id] && (
+                    <div
+                      className="px-2 py-1 rounded font-mono text-center"
+                      style={{
+                        background: '#050810',
+                        border: '1px solid #1a2535',
+                        fontSize: '10px',
+                        color: actionMsg[p.id].startsWith('✅') ? '#22c55e' : actionMsg[p.id].startsWith('❌') ? '#ef4444' : '#94a3b8',
+                      }}
+                    >
+                      {actionMsg[p.id]}
+                    </div>
+                  )}
+                  {/* Date + IDE / Path / Delete row */}
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs text-gray-600">
+                      {new Date(p.created_at).toLocaleDateString('th-TH')}
+                    </span>
+                    <div className="flex gap-2">
+                      <a
+                        href={`/projects/${p.id}`}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold transition-colors"
+                        style={{ background: '#001a2e', border: '1px solid #00e5ff30', color: '#00e5ff' }}
+                        title={t('ide')}
+                      >
+                        <Code2 size={11} />
+                        {t('ide')}
+                      </a>
+                      <button
+                        onClick={() => handleSetPath(p)}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:text-white"
+                        style={{ color: '#6b7280' }}
+                      >
+                        <Settings size={11} />
+                        {t('path')}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(p)}
+                        disabled={isDeleting}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors"
+                        style={{
+                          background: '#1a0a0a',
+                          border: '1px solid #3a1515',
+                          color: isDeleting ? '#6b7280' : '#ff4d4f',
+                        }}
+                      >
+                        {isDeleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                        {isDeleting ? t('deleting') : t('delete')}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
