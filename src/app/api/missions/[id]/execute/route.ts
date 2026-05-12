@@ -475,15 +475,14 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
         const hasCriticalBugs = checkForBugs(latestQA.output)
         const qaRound = latestQA.qa_round || 0
 
-        if (hasCriticalBugs && qaRound < 2) {
-          // Bug Fix Loop — spawn fix mission, then re-test
+        if (hasCriticalBugs && qaRound < 5) {
+          // Bug Fix Loop — spawn fix mission, then re-test (up to 5 rounds)
           spawnBugFixLoop(db, parentMissionId, latestQA, qaRound + 1)
           return
         }
 
-        if (hasCriticalBugs && qaRound >= 2) {
-          // Escalate — max retries exceeded. Tech Lead escalation handles next steps.
-          // Return immediately to avoid race where Phase 4 fires in parallel with escalation.
+        if (hasCriticalBugs && qaRound >= 5) {
+          // Hard cap exceeded — escalate to Tech Lead
           escalateQAFailure(db, parentMissionId, latestQA)
           return
         }
@@ -513,6 +512,171 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
 
     return // Advance one phase at a time
   }
+
+  // ── All phases done — check if project needs an auto-fix loop ──────────────
+  autoLoopProjectFix(db, parentMissionId)
+}
+
+// ── Auto-seed: spawn demo account seeding when project hits 100% ─────────────
+function autoSeedDemoAccounts(db: any, parentMissionId: string) {
+  const project = db.prepare('SELECT * FROM projects WHERE mission_id = ?').get(parentMissionId) as any
+  if (!project) return
+
+  // Already have accounts — nothing to do
+  if (project.demo_accounts_json) return
+
+  // Avoid spawning duplicate SEED missions
+  const existing = db.prepare(
+    `SELECT id FROM missions WHERE parent_mission_id = ? AND title LIKE '[SEED]%' AND status NOT IN ('failed','cancelled')`
+  ).get(parentMissionId)
+  if (existing) return
+
+  const agents = db.prepare('SELECT id, name, role FROM agents ORDER BY name').all() as any[]
+  const agent = agents.find((a: any) =>
+    a.name.includes('เลขา') || a.role.toLowerCase().includes('coordinator') || a.role.toLowerCase().includes('fullstack') || a.role.toLowerCase().includes('devops')
+  ) || agents[0]
+  if (!agent) return
+
+  const composeFile = project.docker_compose_path || `${project.work_dir}/docker-compose.yml`
+  const webPort = project.web_port || '?'
+  const adminerPort = project.adminer_port || '?'
+  const seedId = `mission-${require('uuid').v4().slice(0, 8)}`
+  const desc = `## [SEED] Demo Accounts + ตรวจสอบ Login จาก Browser
+
+Project: ${project.name}
+Work Dir: \`${project.work_dir}\`
+Docker Compose: \`${composeFile}\`
+Web Port (host): ${webPort} | Adminer Port: ${adminerPort}
+
+### ขั้นตอนที่ต้องทำทั้งหมด
+
+**ขั้นที่ 1 — ตรวจสอบ containers**
+\`\`\`bash
+docker compose -f "${composeFile}" ps
+\`\`\`
+ถ้า containers ไม่รัน → \`docker compose -f "${composeFile}" up -d\`
+
+**ขั้นที่ 2 — Seed demo accounts ลง DB**
+ลองตามลำดับ:
+- \`docker exec <web_container> npx prisma db seed\`
+- \`docker exec <web_container> node dist/seed.js\`
+- \`docker exec <web_container> node scripts/seed.js\`
+- ถ้าไม่มี seed script → INSERT ผ่าน SQL โดยตรง:
+  \`docker exec <db_container> psql -U <user> -d <db> -c "INSERT INTO users (email, password_hash, role) VALUES ('admin@demo.com', '<bcrypt_hash>', 'admin'), ('user@demo.com', '<bcrypt_hash>', 'user')"\`
+
+**ขั้นที่ 3 — ⚠️ ตรวจสอบ Dockerfile env สำหรับ browser access**
+ถ้า frontend เป็น Next.js หรือ framework ที่ bake env ตอน build:
+1. เปิด Dockerfile ของ frontend แล้วหา \`NEXT_PUBLIC_API_URL\` หรือ \`NEXT_PUBLIC_API_BASE_URL\`
+2. ถ้าค่าเป็น \`http://<service_name>:<port>\` (Docker service name) → **ต้องแก้เป็น** \`http://localhost:<HOST_PORT>\`
+   - เพราะ browser บน host ไม่รู้จัก Docker service name
+3. ตรวจสอบ: \`grep -r "backend:\\|api:" .next/static/chunks/*.js 2>/dev/null | head -3\`
+   ถ้าเจอ service name → rebuild ด้วย \`docker compose -f "${composeFile}" build <web_service> && docker compose -f "${composeFile}" up -d <web_service>\`
+
+**ขั้นที่ 4 — ทดสอบ login จาก host (ไม่ใช่จากใน container)**
+\`\`\`bash
+# หา login endpoint จาก source code ก่อน (grep หา "auth/login" หรือ "signin")
+curl -s -X POST http://localhost:${webPort}/api/v1/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{"email":"admin@demo.com","password":"demo1234"}'
+\`\`\`
+ต้องได้ JSON response ที่มี token — ถ้าได้ error → แก้ก่อน
+
+**ขั้นที่ 5 — Output บังคับ**
+\`\`\`
+---ACCESS-INFO---
+{"web_port":${webPort},"adminer_port":${adminerPort},"db_user":"<user>","db_password":"<pass>","demo_accounts":[{"role":"Admin","email":"admin@demo.com","password":"demo1234"},{"role":"User","email":"user@demo.com","password":"demo1234"}]}
+---END---
+\`\`\``
+
+  db.prepare(`
+    INSERT INTO missions (id, title, description, agent_id, priority, status, parent_mission_id, phase)
+    VALUES (?, ?, ?, ?, 'high', 'pending', ?, 4)
+  `).run(seedId, `[SEED] Demo Accounts — ${project.name}`, desc, agent.id, parentMissionId)
+
+  fetch(`${BASE_URL}/api/missions/${seedId}/execute`, { method: 'POST' })
+    .catch((e: any) => console.error('[auto-seed] spawn failed:', e.message))
+
+  console.log(`[auto-seed] 🌱 Spawned seed mission ${seedId} for project ${project.id}`)
+}
+
+// ── Auto-loop: keep fixing until 100% complete ───────────────────────────────
+// Runs after all phases complete. If failed missions remain, spawns a new
+// orchestration round (via secretary) summarising what broke. Max 10 loops.
+function autoLoopProjectFix(db: any, parentMissionId: string) {
+  const MAX_LOOPS = 10
+
+  const allSubs = db.prepare(
+    `SELECT id, title, status, phase, output, error FROM missions
+     WHERE parent_mission_id = ?
+       AND title NOT LIKE '[N2N%'
+       AND title NOT LIKE '[AUDIT]%'
+       AND (status != 'cancelled')`
+  ).all(parentMissionId) as any[]
+
+  if (allSubs.length === 0) return
+
+  const failed = allSubs.filter((m: any) => m.status === 'failed')
+  const anyRunning = allSubs.some((m: any) => m.status === 'running' || m.status === 'pending' || m.status === 'waiting' || m.status === 'waiting_phase')
+
+  // Don't fire a new loop if anything is still in progress
+  if (anyRunning) return
+  if (failed.length === 0) {
+    console.log(`[auto-loop] ✅ Project ${parentMissionId} — all missions done (100%)`)
+    autoSeedDemoAccounts(db, parentMissionId)
+    return
+  }
+
+  // Count how many auto-fix loops have already been spawned for this project
+  const loopCount = db.prepare(
+    `SELECT COUNT(*) as c FROM missions
+     WHERE parent_mission_id = ? AND title LIKE '[AUTO-FIX]%'`
+  ).get(parentMissionId) as { c: number }
+
+  if (loopCount.c >= MAX_LOOPS) {
+    console.warn(`[auto-loop] ⚠️ Reached max ${MAX_LOOPS} auto-fix loops for ${parentMissionId} — stopping`)
+    return
+  }
+
+  const agents = db.prepare('SELECT id, name, role, team FROM agents ORDER BY team, name').all() as any[]
+  const secretary = agents.find((a: any) =>
+    a.name.includes('เลขา') || a.name.toLowerCase().includes('secretary') || a.role.toLowerCase().includes('coordinator')
+  )
+  if (!secretary) return
+
+  const total = allSubs.length
+  const done = allSubs.filter((m: any) => m.status === 'done').length
+  const progress = Math.round((done / total) * 100)
+
+  const failedSummary = failed.slice(0, 10).map((m: any) =>
+    `- **${m.title}** (phase ${m.phase ?? '?'})\n  Error: ${(m.error || m.output || '').slice(0, 300)}`
+  ).join('\n')
+
+  const loopId = `mission-${require('uuid').v4().slice(0, 8)}`
+  const desc = `## 🔄 Auto-Fix Loop #${loopCount.c + 1}
+
+Progress ปัจจุบัน: **${progress}%** (${done}/${total} tasks เสร็จ)
+
+มี ${failed.length} task ที่ยังล้มเหลว — วิเคราะห์แต่ละ task แล้วแบ่งงานให้ทีมแก้ไข:
+
+${failedSummary}
+
+---
+**กฎ:**
+1. อ่าน error ของแต่ละ task ให้ละเอียด
+2. ระบุ root cause
+3. แบ่งงานแก้ไขให้ agent ที่เหมาะสม
+4. Output ---TASKS--- block ตามปกติ
+5. ถ้า task ใดต้องการ context จาก phase ก่อนหน้า ให้บอกใน description ด้วย`
+
+  db.prepare(`
+    INSERT INTO missions (id, title, description, agent_id, priority, status, parent_mission_id, phase)
+    VALUES (?, ?, ?, ?, 'high', 'pending', ?, NULL)
+  `).run(loopId, `[AUTO-FIX] Loop #${loopCount.c + 1} — ${progress}% complete`, desc, secretary.id, parentMissionId)
+
+  fetch(`${BASE_URL}/api/missions/${loopId}/execute`, { method: 'POST' })
+    .catch((e) => console.error('[auto-loop] spawn failed:', e.message))
+
+  console.log(`[auto-loop] 🔄 Spawned fix loop #${loopCount.c + 1} for ${parentMissionId} (${failed.length} failed, ${progress}% done)`)
 }
 
 // ── Bug Detection ─────────────────────────────────────────────────────────
@@ -790,7 +954,7 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
     }
 
     const integrationRequirement = isIntegration
-      ? `\n\n---\n## 🔌 บังคับ: Access Info Output (ต้องมีครบทุกครั้ง)\n\nทุกโปรเจคต้องมี **3 services** ใน docker-compose.yml และ output ครบทุกค่า:\n1. **Web App** — frontend/backend ที่ผู้ใช้เข้าถึง (Dockerfile build)\n2. **CloudBeaver** — DB admin UI (image: dbeaver/cloudbeaver:latest, port 8978)\n3. **PostgreSQL** — database (image: postgres:16-alpine)\n\nเมื่อ integration เสร็จและ Docker containers พร้อมแล้ว **ต้อง** output block นี้ก่อน Release Notes เสมอ:\n\n\`\`\`\n---ACCESS-INFO---\n{\n  "web_port": <HOST port ของ web app จาก docker-compose ports ฝั่งซ้าย>,\n  "adminer_port": <HOST port ของ Adminer จาก docker-compose ports ฝั่งซ้าย>,\n  "db_user": "<POSTGRES_USER จาก environment>",\n  "db_password": "<POSTGRES_PASSWORD จาก environment>"\n}\n---END---\n\`\`\`\n\n🚨 กฎบังคับ:\n- **web_port, adminer_port, db_user, db_password ต้องมีค่าทุกฟิลด์ — ห้าม null หรือ missing**\n- ใช้ค่าจริงจาก docker-compose.yml (ports: "HOST:CONTAINER" → ใช้ HOST port เท่านั้น)\n- **ห้ามใช้ port 3000** (ระบบหลักใช้อยู่แล้ว)\n- ก่อนกำหนด port ต้องตรวจสอบว่าว่างจริง${usedPortsInfo}\n- docker-compose.yml **ต้องมี web service** ที่ build จาก Dockerfile\n- docker-compose.yml **ต้องมี cloudbeaver service** (image: dbeaver/cloudbeaver:latest, port 8978)\n- docker-compose.yml **ต้องมี postgres service** พร้อม POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB\n- ถ้า services ไม่ครบ → ต้องเพิ่มก่อน แล้ว build ใหม่\n\n## 🔐 บังคับ: Demo Accounts & Seed Data\nหลัง containers ขึ้นแล้ว ต้องรัน seed data เพื่อสร้าง demo accounts สำหรับทดสอบ login:\n1. ตรวจสอบว่ามี seed script (prisma/seed.ts หรือ scripts/seed.ts หรือ src/db/seed.ts)\n2. รัน seed: \`DATABASE_URL="..." npx tsx prisma/seed.ts\` หรือ \`docker exec <web_container> node seed.js\`\n3. ยืนยัน login สำเร็จด้วย curl: \`curl -X POST http://localhost:<web_port>/api/auth/login -H "Content-Type: application/json" -d '{"email":"...","password":"..."}'\`\n4. **ต้อง output demo accounts** ใน ---ACCESS-INFO--- block ด้วย field "demo_accounts":\n\`\`\`\n---ACCESS-INFO---\n{\n  "web_port": <port>,\n  "adminer_port": <port>,\n  "db_user": "<user>",\n  "db_password": "<pass>",\n  "demo_accounts": [\n    {"role": "Admin", "email": "admin@demo.com", "password": "demo1234"},\n    {"role": "User", "email": "user@demo.com", "password": "demo1234"}\n  ]\n}\n---END---\n\`\`\`\n- ถ้าไม่มี seed script → สร้าง users ผ่าน API register หรือ insert SQL โดยตรง\n- **ต้องทดสอบ login จริงทุกครั้งก่อน report เสร็จ**\n---\n`
+      ? `\n\n---\n## 🔌 กฎเหล็ก Integration (ทำครบทุกข้อก่อน report เสร็จ)\n\n### 1. Docker Services (บังคับ 3 services)\n- **web** — frontend หรือ fullstack app (build จาก Dockerfile, expose port ออกสู่ host)\n- **cloudbeaver** — DB admin UI (image: \`dbeaver/cloudbeaver:latest\`, port 8978 หรือว่าง)\n- **postgres** — database (image: \`postgres:16-alpine\`, พร้อม POSTGRES_USER/PASSWORD/DB)\n\n### 2. ⚠️ กฎ Dockerfile NEXT_PUBLIC_* (สำคัญมาก)\nถ้า frontend เป็น Next.js (หรือ framework อื่นที่ bake env ตอน build):\n- **ห้ามใช้ Docker service name** ใน \`NEXT_PUBLIC_API_URL\` หรือ \`NEXT_PUBLIC_API_BASE_URL\`\n- เพราะ service name เช่น \`http://backend:8080\` ใช้ได้เฉพาะ container-to-container เท่านั้น\n- browser บน host ไม่รู้จัก hostname \`backend\` → login/API ทั้งหมดพัง\n- **ต้องใช้ \`http://localhost:<HOST_PORT>\`** เสมอ เช่น:\n\`\`\`dockerfile\nENV NEXT_PUBLIC_API_URL=http://localhost:${suggestedWebPort}\nENV NEXT_PUBLIC_API_BASE_URL=http://localhost:${suggestedWebPort}\n\`\`\`\n- ถ้ามี \`.env.local\` ต้องตรวจสอบว่า \`.dockerignore\` ไม่ได้ exclude มัน หรือ set ENV ใน Dockerfile แทน\n- **ตรวจสอบ**: หลัง build ต้อง grep หา \`backend:\` หรือ service name ใน \`.next/static/chunks/*.js\` — ถ้าเจอ → แก้ Dockerfile แล้ว build ใหม่\n\n### 3. Seed Demo Accounts (บังคับ)\nหลัง \`docker compose up\` สำเร็จ:\n1. รัน seed หรือ insert users ลง DB:\n   - \`docker exec <web_container> npx prisma db seed\` หรือ\n   - \`docker exec <web_container> node seed.js\` หรือ\n   - SQL: \`docker exec <db_container> psql -U <user> -d <db> -c "INSERT INTO users ..."\`\n2. ยืนยัน login จาก **host** (ไม่ใช่จากใน container):\n   \`curl -s -X POST http://localhost:<web_port>/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"admin@demo.com","password":"demo1234"}' | grep -o 'token\\|accessToken\\|error'\`\n3. ต้องได้ token กลับมา — ถ้า error → แก้ก่อน report\n\n### 4. Output บังคับ (ก่อน Release Notes เสมอ)\n\`\`\`\n---ACCESS-INFO---\n{\n  "web_port": <HOST port จาก docker-compose>,\n  "adminer_port": <HOST port ของ cloudbeaver>,\n  "db_user": "<POSTGRES_USER>",\n  "db_password": "<POSTGRES_PASSWORD>",\n  "demo_accounts": [\n    {"role": "Admin", "email": "admin@demo.com", "password": "demo1234"},\n    {"role": "User", "email": "user@demo.com", "password": "demo1234"}\n  ]\n}\n---END---\n\`\`\`\n\n🚫 ห้าม:\n- ใช้ port 3000 (ระบบหลักใช้อยู่)\n- ใช้ service name ใน NEXT_PUBLIC env ที่ bake ตอน build${usedPortsInfo}\n- Report เสร็จโดยยังไม่ได้ทดสอบ login จริง\n- มีฟิลด์ใดใน ---ACCESS-INFO--- เป็น null หรือ missing\n---\n`
       : ''
 
     const fullDescription = workDirCtx + task.description + integrationRequirement
@@ -1020,6 +1184,97 @@ function getClaudeCLI(db: any): string {
   } catch {}
   return process.env.CLAUDE_CLI_PATH || 'claude'
 }
+
+function getJiraConfig(db: any): { baseUrl: string; email: string; token: string } | null {
+  try {
+    const row = db.prepare('SELECT jira_base_url, jira_email, jira_api_token FROM system_config WHERE id = ?').get('default') as any
+    if (row?.jira_base_url && row?.jira_email && row?.jira_api_token) {
+      return { baseUrl: row.jira_base_url.replace(/\/$/, ''), email: row.jira_email, token: row.jira_api_token }
+    }
+  } catch {}
+  return null
+}
+
+async function executeJiraAction(jira: { baseUrl: string; email: string; token: string }, payload: any) {
+  const auth = Buffer.from(`${jira.email}:${jira.token}`).toString('base64')
+  const headers = { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json', Accept: 'application/json' }
+  const base = jira.baseUrl
+
+  switch (payload.action) {
+    case 'create_issue': {
+      const body = {
+        fields: {
+          project: { key: payload.project_key },
+          summary: payload.summary,
+          description: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: payload.description || '' }] }] },
+          issuetype: { name: payload.issue_type || 'Task' },
+          ...(payload.priority ? { priority: { name: payload.priority } } : {}),
+          ...(payload.assignee ? { assignee: { accountId: payload.assignee } } : {}),
+        },
+      }
+      const res = await fetch(`${base}/rest/api/3/issue`, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) })
+      if (res.ok) {
+        const data = await res.json()
+        console.log(`[jira] ✅ Created issue: ${data.key} — ${(payload.summary || '').slice(0, 60)}`)
+      } else {
+        const err = await res.text()
+        console.error(`[jira] ❌ create_issue failed: ${res.status} — ${err.slice(0, 200)}`)
+      }
+      break
+    }
+    case 'transition': {
+      const transRes = await fetch(`${base}/rest/api/3/issue/${payload.issue_key}/transitions`, { headers, signal: AbortSignal.timeout(10000) })
+      if (!transRes.ok) { console.error(`[jira] ❌ get transitions failed: ${transRes.status}`); break }
+      const transData = await transRes.json()
+      const transition = (transData.transitions || []).find((t: any) =>
+        payload.transition_id ? t.id === payload.transition_id : t.name.toLowerCase() === (payload.transition_name || '').toLowerCase()
+      )
+      if (!transition) { console.error(`[jira] ❌ transition "${payload.transition_name || payload.transition_id}" not found`); break }
+      const res = await fetch(`${base}/rest/api/3/issue/${payload.issue_key}/transitions`, {
+        method: 'POST', headers, body: JSON.stringify({ transition: { id: transition.id } }), signal: AbortSignal.timeout(10000),
+      })
+      if (res.ok) console.log(`[jira] ✅ Transitioned ${payload.issue_key} → ${transition.name}`)
+      else console.error(`[jira] ❌ transition failed: ${res.status}`)
+      break
+    }
+    case 'comment': {
+      const commentText = payload.comment || payload.body || ''
+      const body = { body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: commentText }] }] } }
+      const res = await fetch(`${base}/rest/api/3/issue/${payload.issue_key}/comment`, {
+        method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+      })
+      if (res.ok) console.log(`[jira] ✅ Commented on ${payload.issue_key}`)
+      else console.error(`[jira] ❌ comment failed: ${res.status}`)
+      break
+    }
+    default:
+      console.error(`[jira] ❌ Unknown action: ${payload.action}`)
+  }
+}
+
+async function handleJiraBlock(db: any, output: string) {
+  if (!output.includes('---JIRA---')) return
+  const jira = getJiraConfig(db)
+  if (!jira) { console.warn('[jira] ⚠️ JIRA block found but no Jira credentials configured'); return }
+  const blockRegex = /---JIRA---\s*([\s\S]*?)---END---/g
+  let match: RegExpExecArray | null
+  while ((match = blockRegex.exec(output)) !== null) {
+    try {
+      const payload = JSON.parse(match[1].trim())
+      await executeJiraAction(jira, payload)
+    } catch (e) {
+      console.error('[jira] Failed to parse JIRA block:', e)
+    }
+  }
+}
+
+function getOllamaBaseUrl(db: any): string {
+  try {
+    const row = db.prepare('SELECT ollama_base_url FROM system_config WHERE id = ?').get('default') as any
+    if (row?.ollama_base_url) return row.ollama_base_url.replace(/\/$/, '')
+  } catch {}
+  return 'http://localhost:11434'
+}
 const MISSION_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const WATCHDOG_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — don't scan on every request
 
@@ -1180,7 +1435,82 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
 
       try {
         const modelArg = mission.agent_model || 'claude-haiku-4-5-20251001'
+        const isOllama = modelArg.startsWith('ollama:')
 
+        // ── Ollama execution path ─────────────────────────────────────────────
+        if (isOllama) {
+          const ollamaModel = modelArg.slice('ollama:'.length)
+          const ollamaUrl = getOllamaBaseUrl(db)
+
+          const ollamaRes = await fetch(`${ollamaUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: ollamaModel,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
+              stream: true,
+            }),
+          })
+
+          if (!ollamaRes.ok || !ollamaRes.body) {
+            const errText = await ollamaRes.text().catch(() => '')
+            throw new Error(`Ollama error ${ollamaRes.status}: ${errText.slice(0, 200)}`)
+          }
+
+          const reader = ollamaRes.body.getReader()
+          const dec = new TextDecoder()
+          let buf = ''
+          let totalTokens = 0
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buf += dec.decode(value, { stream: true })
+            const lines = buf.split('\n')
+            buf = lines.pop() || ''
+
+            for (const line of lines) {
+              const trimmed = line.trim()
+              if (!trimmed) continue
+              try {
+                const evt = JSON.parse(trimmed)
+                const chunk: string = evt.message?.content || ''
+                if (chunk) {
+                  fullOutput += chunk
+                  send({ type: 'chunk', text: chunk })
+                  if (fullOutput.length % 80 < chunk.length) {
+                    db.prepare('UPDATE missions SET output = ? WHERE id = ?').run(fullOutput, params.id)
+                  }
+                }
+                if (evt.done && evt.eval_count) totalTokens = evt.eval_count
+              } catch {}
+            }
+          }
+
+          db.prepare('UPDATE missions SET output = ?, status = ?, completed_at = CURRENT_TIMESTAMP, tokens_used = ? WHERE id = ?')
+            .run(fullOutput, 'done', totalTokens, params.id)
+          db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
+
+          handleResultBlock(db, params.id, mission, fullOutput)
+          handlePhaseGateBlock(db, params.id, mission, fullOutput)
+          try { handleSendTo(db, params.id, mission, fullOutput) } catch (e) { console.error('[n2n-send-to]', e) }
+          await handleJiraBlock(db, fullOutput)
+          if (mission.parent_mission_id) {
+            advanceProjectPhase(db, mission.parent_mission_id)
+            autoLoopProjectFix(db, mission.parent_mission_id)
+          }
+
+          autoNotify('done', mission.title as string, fullOutput.slice(0, 500), mission.agent_name as string, mission.agent_id as string)
+          if (workDir) gitAutoCommit(workDir, mission.title as string, mission.agent_name as string)
+          send({ type: 'done', mission_id: params.id })
+          controller.close()
+          return
+        }
+
+        // ── Claude CLI execution path ─────────────────────────────────────────
         const child = spawn(getClaudeCLI(db), [
           '--print',
           '--verbose',
@@ -1339,6 +1669,11 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
         // --- PHASE_GATE block: phase gate check ---
         if (fullOutput.includes('---PHASE_GATE---')) {
           try { handlePhaseGateBlock(db, params.id, mission, fullOutput) } catch (e) { console.error('[phase-gate-block]', e) }
+        }
+
+        // --- JIRA block: create issue / transition / comment via Jira REST API ---
+        if (fullOutput.includes('---JIRA---')) {
+          try { await handleJiraBlock(db, fullOutput) } catch (e) { console.error('[jira-block]', e) }
         }
 
         // --- Phase advancement: if this sub-mission just completed, check if next phase should start ---
@@ -1501,6 +1836,29 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
                 `).run(webPort, adminerPort, dbUser, dbPass, integrationOutput, demoAccountsJson, project.id)
 
                 console.log(`[integration] 💾 Saved to project ${project.id}: web=${webPort} adminer=${adminerPort} user=${dbUser}`)
+
+                // Auto-rescan if demo accounts still empty — combine all phase 4 outputs
+                if (!demoAccountsJson) {
+                  try {
+                    const allPhase4 = db.prepare(`
+                      SELECT output FROM missions
+                      WHERE parent_mission_id = ? AND phase = 4 AND status = 'done'
+                      ORDER BY created_at DESC
+                    `).all(integrationParentId) as { output: string }[]
+                    const combined = allPhase4.map((m: any) => m.output || '').join('\n\n')
+                    const rescanned = parseDemoAccountsJson(combined)
+                    if (rescanned) {
+                      db.prepare('UPDATE projects SET demo_accounts_json = ? WHERE id = ?').run(rescanned, project.id)
+                      console.log(`[integration] 🔍 Auto-rescan found demo accounts for project ${project.id}`)
+                    }
+                  } catch {}
+                }
+
+                // If still no demo accounts after all attempts → auto-seed
+                const finalProject = db.prepare('SELECT demo_accounts_json, mission_id FROM projects WHERE id = ?').get(project.id) as any
+                if (!finalProject?.demo_accounts_json) {
+                  autoSeedDemoAccounts(db, integrationParentId)
+                }
               }
             }
           } catch (e) { console.error('[integration] Failed to save project info:', e) }

@@ -243,6 +243,10 @@ function initializeSchema(db: Database.Database) {
     )
   `)
   db.exec(`INSERT OR IGNORE INTO system_config (id) VALUES ('default')`)
+  ensureColumn(db, 'system_config', 'ollama_base_url', "TEXT NOT NULL DEFAULT 'http://localhost:11434'")
+  ensureColumn(db, 'system_config', 'jira_base_url',   "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'jira_email',      "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'jira_api_token',  "TEXT NOT NULL DEFAULT ''")
   // Seed default SDLC config — always update to latest spec
   db.prepare(`INSERT OR REPLACE INTO sdlc_config (id, config_json, updated_at) VALUES ('default', ?, CURRENT_TIMESTAMP)`).run(JSON.stringify({
     name: 'Quality-First Multi-Agent SDLC',
@@ -659,10 +663,41 @@ function initializeSchema(db: Database.Database) {
   ensureColumn(db, 'missions', 'is_leader',                 'INTEGER DEFAULT 0')
   // agents columns
   ensureColumn(db, 'agents',   'is_leader',                 'INTEGER DEFAULT 0')
+  ensureColumn(db, 'agents',   'name_en',                   'TEXT')
+  // Populate name_en for seeded agents where still empty
+  const agentEnNames: Record<string, string> = {
+    'agent-secretary':     'Secretary',
+    'agent-coder':         'Developer',
+    'agent-sysadmin':      'Sys Admin',
+    'agent-automation':    'Automation Eng.',
+    'agent-prompt':        'Prompt Engineer',
+    'agent-course':        'Course Designer',
+    'agent-content':       'Content Creator',
+    'agent-graphic':       'Graphic Designer',
+    'agent-creative':      'Creative Director',
+    'agent-marketing':     'Marketer',
+    'agent-strategist':    'Strategist',
+    'agent-journalist':    'Journalist',
+    'agent-accountant':    'Accountant',
+    'agent-gold-trader':   'Gold Trader',
+    'agent-stock-analyst': 'Stock Analyst',
+    'agent-ux-designer':   'UX Designer',
+    'agent-security':      'Security Eng.',
+    'agent-product-owner': 'Product Owner',
+    'agent-sre':           'SRE Engineer',
+  }
+  const updateNameEn = db.prepare(`UPDATE agents SET name_en = ? WHERE id = ? AND (name_en IS NULL OR name_en = '')`)
+  for (const [id, name_en] of Object.entries(agentEnNames)) {
+    updateNameEn.run(name_en, id)
+  }
   // projects columns
   ensureColumn(db, 'projects', 'db_user',                   'TEXT')
   ensureColumn(db, 'projects', 'db_password',               'TEXT')
   ensureColumn(db, 'projects', 'demo_accounts_json',        'TEXT')
+  ensureColumn(db, 'projects', 'web_port',                  'INTEGER')
+  ensureColumn(db, 'projects', 'api_port',                  'INTEGER')
+  ensureColumn(db, 'projects', 'db_port',                   'INTEGER')
+  ensureColumn(db, 'projects', 'adminer_port',              'INTEGER')
   // IDE chat history
   try { db.exec(`
     CREATE TABLE IF NOT EXISTS ide_chat_messages (

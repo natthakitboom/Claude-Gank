@@ -91,6 +91,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 export async function DELETE(_: Request, { params }: { params: { id: string } }) {
   try {
     const db = getDb()
+    // Delete related records first (foreign key constraints)
+    db.prepare('DELETE FROM agent_skills WHERE agent_id = ?').run(params.id)
+    db.prepare('DELETE FROM memory WHERE agent_id = ?').run(params.id)
+    db.prepare('DELETE FROM chats WHERE agent_id = ?').run(params.id)
+    db.prepare('DELETE FROM missions WHERE agent_id = ?').run(params.id)
     db.prepare('DELETE FROM agents WHERE id = ?').run(params.id)
     return NextResponse.json({ success: true })
   } catch (error) {
