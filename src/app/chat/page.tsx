@@ -145,8 +145,8 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Left: Chat List */}
-      <div className="w-72 flex-shrink-0 flex flex-col" style={{ background: '#080a0f', borderRight: '1px solid #111820' }}>
-        <div className="p-4 border-b" style={{ borderColor: '#111820' }}>
+      <div className="w-72 flex-shrink-0 flex flex-col" style={{ background: '#0A0709', borderRight: '1px solid #181218' }}>
+        <div className="p-4 border-b" style={{ borderColor: '#181218' }}>
           <div className="flex items-center justify-between mb-2">
             <h1 className="font-orbitron text-sm font-bold text-white" style={{ letterSpacing: '0.08em' }}>{t('nav_chat')}</h1>
             <button onClick={() => setShowNewChat(true)} className="btn-deploy" style={{ padding: '6px 12px', fontSize: '9px' }}>+ NEW</button>
@@ -171,8 +171,8 @@ export default function ChatPage() {
                 onClick={() => openChat(c.id)}
                 className="w-full text-left rounded-lg p-3 transition-all"
                 style={{
-                  background: activeChat?.id === c.id ? '#0f1420' : '#111827',
-                  border: `1px solid ${activeChat?.id === c.id ? '#1e3a5f' : '#1a2030'}`,
+                  background: activeChat?.id === c.id ? '#0f1420' : '#181218',
+                  border: `1px solid ${activeChat?.id === c.id ? '#3D1E2C' : '#1a2030'}`,
                 }}
               >
                 <div className="flex items-center gap-2">
@@ -191,7 +191,7 @@ export default function ChatPage() {
               <button
                 onClick={(e) => { e.stopPropagation(); deleteChat(c.id) }}
                 className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded p-1"
-                style={{ background: '#111820', color: '#ef4444', fontSize: '10px' }}
+                style={{ background: '#181218', color: '#ef4444', fontSize: '10px' }}
                 title="Delete"
               >✕</button>
             </div>
@@ -214,7 +214,7 @@ export default function ChatPage() {
         ) : (
           <>
             {/* Chat Header */}
-            <div className="flex-shrink-0 px-5 py-3 flex items-center justify-between border-b" style={{ background: '#111827', borderColor: '#111820' }}>
+            <div className="flex-shrink-0 px-5 py-3 flex items-center justify-between border-b" style={{ background: '#181218', borderColor: '#181218' }}>
               <div className="flex items-center gap-3">
                 <PixelSprite agentId={activeChat.agent_id} size={32} />
                 <div>
@@ -244,8 +244,8 @@ export default function ChatPage() {
                   <div
                     className="rounded-xl px-4 py-3 max-w-[75%]"
                     style={{
-                      background: msg.role === 'user' ? 'rgba(0,229,255,0.1)' : '#111827',
-                      border: `1px solid ${msg.role === 'user' ? 'rgba(0,229,255,0.2)' : '#1e2d40'}`,
+                      background: msg.role === 'user' ? 'rgba(212,67,107,0.1)' : '#181218',
+                      border: `1px solid ${msg.role === 'user' ? 'rgba(212,67,107,0.2)' : '#2E1E27'}`,
                     }}
                   >
                     <div className="text-sm whitespace-pre-wrap" style={{ color: '#e2e8f0', lineHeight: 1.7 }}>
@@ -263,7 +263,7 @@ export default function ChatPage() {
               {/* Streaming message */}
               {isStreaming && streamText && (
                 <div className="flex justify-start">
-                  <div className="rounded-xl px-4 py-3 max-w-[75%]" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+                  <div className="rounded-xl px-4 py-3 max-w-[75%]" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
                     <div className="text-sm whitespace-pre-wrap" style={{ color: '#e2e8f0', lineHeight: 1.7 }}>
                       {streamText}<span className="text-green-400">█</span>
                     </div>
@@ -273,7 +273,7 @@ export default function ChatPage() {
 
               {isStreaming && !streamText && (
                 <div className="flex justify-start">
-                  <div className="rounded-xl px-4 py-3" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+                  <div className="rounded-xl px-4 py-3" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
                     <div className="typing-dots"><span /><span /><span /></div>
                   </div>
                 </div>
@@ -281,7 +281,7 @@ export default function ChatPage() {
             </div>
 
             {/* Input Area */}
-            <div className="flex-shrink-0 p-4 border-t" style={{ borderColor: '#111820', background: '#0a0c12' }}>
+            <div className="flex-shrink-0 p-4 border-t" style={{ borderColor: '#181218', background: '#0a0c12' }}>
               <div className="flex items-end gap-3">
                 <textarea
                   ref={inputRef}
@@ -301,7 +301,7 @@ export default function ChatPage() {
                   style={{
                     fontSize: '10px',
                     letterSpacing: '0.06em',
-                    background: isStreaming ? '#ef4444' : !input.trim() ? '#111820' : '#00e5ff',
+                    background: isStreaming ? '#ef4444' : !input.trim() ? '#181218' : '#E8365D',
                     color: isStreaming ? '#fff' : !input.trim() ? '#374151' : '#000',
                     cursor: !isStreaming && !input.trim() ? 'not-allowed' : 'pointer',
                   }}
@@ -317,8 +317,8 @@ export default function ChatPage() {
       {/* New Chat Modal — Agent Picker */}
       {showNewChat && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-          <div className="w-full max-w-2xl rounded-xl overflow-hidden" style={{ background: '#111827', border: '1px solid #1a2535' }}>
-            <div className="p-5 border-b" style={{ borderColor: '#111820' }}>
+          <div className="w-full max-w-2xl rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid #2A1622' }}>
+            <div className="p-5 border-b" style={{ borderColor: '#181218' }}>
               <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>{t('chat_choose_agent')}</span>
               <p className="mt-1" style={{ fontSize: '10px', color: '#475569' }}>{t('chat_choose_desc')}</p>
             </div>
@@ -329,7 +329,7 @@ export default function ChatPage() {
                     key={agent.id}
                     onClick={() => createChat(agent.id)}
                     className="flex items-center gap-3 p-3 rounded-lg transition-all text-left hover:border-cyan-500/30"
-                    style={{ background: '#0f1420', border: '1px solid #1a2535' }}
+                    style={{ background: '#0f1420', border: '1px solid #2A1622' }}
                   >
                     <PixelSprite agentId={agent.id} size={32} />
                     <div className="flex-1 min-w-0">
@@ -342,8 +342,8 @@ export default function ChatPage() {
                 ))}
               </div>
             </div>
-            <div className="p-4 border-t" style={{ borderColor: '#111820' }}>
-              <button onClick={() => setShowNewChat(false)} className="w-full py-2 rounded font-orbitron text-xs" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b' }}>
+            <div className="p-4 border-t" style={{ borderColor: '#181218' }}>
+              <button onClick={() => setShowNewChat(false)} className="w-full py-2 rounded font-orbitron text-xs" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b' }}>
                 {t('cancel')}
               </button>
             </div>

@@ -608,6 +608,46 @@ const sprites: Record<string, PixelGrid> = {
     [null,null,null,null,null,PANTS,PANTS,null,PANTS,PANTS,null,null,null,null,null,null],
     [null,null,null,null,SHOE,SHOE,SHOE,null,SHOE,SHOE,SHOE,null,null,null,null,null],
   ],
+
+  // นักวิเคราะห์ธุรกิจ (BA) — teal shirt, glasses, white tie, professional
+  'agent-5b031ee4': [
+    [null,null,null,null,null,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,null,null,null,null,null,null],
+    [null,null,null,null,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,null,null,null,null,null],
+    [null,null,null,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,HAIR_BK,null,null,null,null],
+    [null,null,null,HAIR_BK,SKIN,SKIN,SKIN,SKIN,SKIN,SKIN,SKIN,HAIR_BK,null,null,null,null],
+    [null,null,null,null,GLASS,EYE,GLASS,SKIN,GLASS,EYE,GLASS,null,null,null,null,null],
+    [null,null,null,null,SKIN,SKIN,SKIN,SKIN2,SKIN,SKIN,SKIN,null,null,null,null,null],
+    [null,null,null,null,SKIN,SKIN,SKIN2,SKIN2,SKIN2,SKIN,SKIN,null,null,null,null,null],
+    [null,null,null,null,null,SKIN,SKIN,SKIN,SKIN,SKIN,null,null,null,null,null,null],
+    [null,null,null,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_W,SHIRT_T,SHIRT_W,SHIRT_T,SHIRT_T,SHIRT_T,null,null,null,null],
+    [null,null,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_W,SHIRT_T,SHIRT_W,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_T,null,null,null],
+    [null,null,SHIRT_T,SKIN,SHIRT_T,SHIRT_T,SHIRT_W,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_T,SKIN,SHIRT_T,null,null,null],
+    [null,null,null,SKIN,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_T,SHIRT_T,SKIN,null,null,null,null],
+    [null,null,null,null,null,PANTS2,PANTS2,PANTS2,PANTS2,PANTS2,PANTS2,null,null,null,null,null],
+    [null,null,null,null,null,PANTS2,PANTS2,null,PANTS2,PANTS2,PANTS2,null,null,null,null,null],
+    [null,null,null,null,null,PANTS2,PANTS2,null,PANTS2,PANTS2,null,null,null,null,null,null],
+    [null,null,null,null,SHOE,SHOE,SHOE,null,SHOE,SHOE,SHOE,null,null,null,null,null],
+  ],
+
+  // วิศวกร QA — green shirt, dark blue hair, magnifying glass in hand
+  'agent-e6e19ea4': [
+    [null,null,null,null,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,null,null,null,null,null,null],
+    [null,null,null,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,null,null,null,null,null],
+    [null,null,null,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,HAIR_BL,null,null,null,null],
+    [null,null,null,HAIR_BL,SKIN,SKIN,SKIN,SKIN,SKIN,SKIN,SKIN,HAIR_BL,null,null,null,null],
+    [null,null,null,null,SKIN,EYE,SKIN,SKIN,SKIN,EYE,SKIN,null,null,null,null,null],
+    [null,null,null,null,SKIN,SKIN,SKIN,SKIN,SKIN,SKIN,SKIN,null,null,null,null,null],
+    [null,null,null,null,SKIN,SKIN,SKIN2,SKIN,SKIN2,SKIN,SKIN,null,null,null,null,null],
+    [null,null,null,null,null,SKIN,SKIN,SKIN,SKIN,SKIN,null,null,null,null,null,null],
+    [null,null,null,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,null,null,null,null],
+    [null,null,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,null,null,null],
+    [null,null,SHIRT_G,SKIN,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SKIN,'#888',null,null,null],
+    [null,null,null,SKIN,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SHIRT_G,SKIN,'#aaa',null,null,null],
+    [null,null,null,null,null,PANTS,PANTS,PANTS,PANTS,PANTS,PANTS,null,null,null,null,null],
+    [null,null,null,null,null,PANTS,PANTS,null,PANTS,PANTS,PANTS,null,null,null,null,null],
+    [null,null,null,null,null,PANTS,PANTS,null,PANTS,PANTS,null,null,null,null,null,null],
+    [null,null,null,null,SHOE,SHOE,SHOE,null,SHOE,SHOE,SHOE,null,null,null,null,null],
+  ],
 }
 
 const PX = 5 // pixel size
@@ -625,26 +665,68 @@ function renderSVG(grid: PixelGrid): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${16 * PX} ${16 * PX}" shape-rendering="crispEdges">${rects}</svg>`
 }
 
+// ── Procedural sprite generator ───────────────────────────────────────────────
+// Generates a unique but deterministic pixel character from any agentId.
+// Used as fallback for agents not in the sprites dictionary above.
+
+function hashId(s: string): number {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = (Math.imul(33, h) ^ s.charCodeAt(i)) >>> 0
+  return h
+}
+
+const GEN_HAIRS  = [HAIR_BK, HAIR_BR, HAIR_BL]
+const GEN_SHIRTS = [SHIRT_B, SHIRT_G, SHIRT_P, SHIRT_Y, SHIRT_T, SHIRT_R, SHIRT_D, SHIRT_W]
+const GEN_PANTS  = [PANTS, PANTS2]
+
+function makeGeneratedSprite(agentId: string): PixelGrid {
+  const h = hashId(agentId)
+  const hair   = GEN_HAIRS[(h) % 3]
+  const shirt  = GEN_SHIRTS[(h >>> 4) % 8]
+  const pants  = GEN_PANTS[(h >>> 8) % 2]
+  const glss   = (h >>> 12) % 3 === 0   // 1-in-3 gets glasses
+  const tie    = (h >>> 14) % 4 === 0   // 1-in-4 gets white tie
+
+  const eyeRow: (string | null)[] = glss
+    ? [null,null,null,null,GLASS,EYE,GLASS,SKIN,GLASS,EYE,GLASS,null,null,null,null,null]
+    : [null,null,null,null,SKIN,EYE,SKIN,SKIN,SKIN,EYE,SKIN,null,null,null,null,null]
+
+  const s = shirt
+  const detailCol = tie ? SHIRT_W : s
+
+  return [
+    [null,null,null,null,null,hair,hair,hair,hair,hair,null,null,null,null,null,null],
+    [null,null,null,null,hair,hair,hair,hair,hair,hair,hair,null,null,null,null,null],
+    [null,null,null,hair,hair,hair,hair,hair,hair,hair,hair,hair,null,null,null,null],
+    [null,null,null,hair,SKIN,SKIN,SKIN,SKIN,SKIN,SKIN,SKIN,hair,null,null,null,null],
+    eyeRow,
+    [null,null,null,null,SKIN,SKIN,SKIN,SKIN2,SKIN,SKIN,SKIN,null,null,null,null,null],
+    [null,null,null,null,SKIN,SKIN,SKIN2,SKIN2,SKIN2,SKIN,SKIN,null,null,null,null,null],
+    [null,null,null,null,null,SKIN,SKIN,SKIN,SKIN,SKIN,null,null,null,null,null,null],
+    [null,null,null,s,s,s,detailCol,s,detailCol,s,s,s,null,null,null,null],
+    [null,null,s,s,s,s,detailCol,s,detailCol,s,s,s,s,null,null,null],
+    [null,null,s,SKIN,s,s,s,s,s,s,s,SKIN,s,null,null,null],
+    [null,null,null,SKIN,s,s,s,s,s,s,s,SKIN,null,null,null,null],
+    [null,null,null,null,null,pants,pants,pants,pants,pants,pants,null,null,null,null,null],
+    [null,null,null,null,null,pants,pants,null,pants,pants,pants,null,null,null,null,null],
+    [null,null,null,null,null,pants,pants,null,pants,pants,null,null,null,null,null,null],
+    [null,null,null,null,SHOE,SHOE,SHOE,null,SHOE,SHOE,SHOE,null,null,null,null,null],
+  ]
+}
+
 // Pre-render all SVGs
-const svgCache: Record<string, string> = {}
+export const svgCache: Record<string, string> = {}
 for (const [id, grid] of Object.entries(sprites)) {
   svgCache[id] = `data:image/svg+xml,${encodeURIComponent(renderSVG(grid))}`
 }
 
 export default function PixelSprite({ agentId, size = 72 }: { agentId: string; size?: number }) {
   const src = svgCache[agentId]
-
-  if (!src) {
-    // fallback: colored rectangle
-    return (
-      <div
-        style={{ width: size, height: size, background: '#1a2030', borderRadius: 4 }}
-        className="flex items-center justify-center"
-      >
-        <span style={{ fontSize: size * 0.5 }}>?</span>
-      </div>
-    )
-  }
+    ?? (() => {
+      const generated = `data:image/svg+xml,${encodeURIComponent(renderSVG(makeGeneratedSprite(agentId)))}`
+      svgCache[agentId] = generated
+      return generated
+    })()
 
   return (
     <img

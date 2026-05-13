@@ -7,6 +7,7 @@ import {
   GitBranch, Users, AlertTriangle, Loader2, Eye, FileText,
   Shield, Brain, Activity, ListChecks, Scale, Send as SendIcon,
 } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface Phase {
@@ -34,6 +35,7 @@ const PRESET_COLORS = ['#ff2d78', '#a855f7', '#2d7fff', '#22c55e', '#06b6d4', '#
 const PRESET_ICONS = ['🚀', '📐', '💻', '🧪', '🛡️', '🚢', '🧠', '📊', '🔍', '📝', '🎨', '⚙️', '🔧']
 
 export default function SDLCPage() {
+  const { t } = useLanguage()
   const [config, setConfig] = useState<SDLCConfig | null>(null)
   const [original, setOriginal] = useState<SDLCConfig | null>(null)
   const [loading, setLoading] = useState(true)
@@ -94,19 +96,19 @@ export default function SDLCPage() {
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: '#060608', color: '#e2e8f0' }}>
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 px-6 pt-5 pb-0" style={{ background: '#0a0e14', borderBottom: '1px solid #111820' }}>
+      <div className="flex-shrink-0 px-6 pt-5 pb-0" style={{ background: '#0a0e14', borderBottom: '1px solid #181218' }}>
         <div className="flex items-center justify-between mb-3">
           <div>
             <h1 className="font-orbitron font-bold text-white flex items-center gap-2" style={{ fontSize: '20px', letterSpacing: '0.05em' }}>
-              <GitBranch size={16} style={{ color: '#00e5ff' }} />
+              <GitBranch size={16} style={{ color: '#E8365D' }} />
               {config.name}
               {config.version && <span className="ml-1 text-xs font-normal px-1.5 py-0.5 rounded" style={{ background: '#001a40', color: '#60a5fa', border: '1px solid #0066ff44', fontSize: '8px' }}>v{config.version}</span>}
             </h1>
             <p className="font-orbitron mt-0.5" style={{ fontSize: '8px', color: '#374151', letterSpacing: '0.1em' }}>// {config.description}</p>
           </div>
           <div className="flex items-center gap-2">
-            {dirty && <button onClick={resetConfig} className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-orbitron" style={{ background: '#0d1117', border: '1px solid #1a2535', color: '#64748b', fontSize: '9px' }}><RotateCcw size={10} /> RESET</button>}
-            <button onClick={saveConfig} disabled={!dirty || saving} className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-orbitron font-semibold disabled:opacity-40" style={{ background: dirty ? 'linear-gradient(135deg,#0066ff,#00e5ff)' : '#0d1117', color: dirty ? 'white' : '#374151', border: `1px solid ${dirty ? '#00e5ff44' : '#1a2535'}`, fontSize: '9px' }}>
+            {dirty && <button onClick={resetConfig} className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-orbitron" style={{ background: '#0F0B0D', border: '1px solid #2A1622', color: '#64748b', fontSize: '9px' }}><RotateCcw size={10} /> RESET</button>}
+            <button onClick={saveConfig} disabled={!dirty || saving} className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-orbitron font-semibold disabled:opacity-40" style={{ background: dirty ? 'linear-gradient(135deg,#0066ff,#E8365D)' : '#0F0B0D', color: dirty ? 'white' : '#374151', border: `1px solid ${dirty ? '#E8365D44' : '#2A1622'}`, fontSize: '9px' }}>
               {saving ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />} {saving ? 'SAVING…' : 'SAVE'}
             </button>
           </div>
@@ -115,7 +117,7 @@ export default function SDLCPage() {
         <div className="flex gap-0">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)} className="flex items-center gap-1.5 px-4 py-2 text-xs font-orbitron transition-colors"
-              style={{ color: activeTab === t.key ? '#00e5ff' : '#4a5568', borderBottom: activeTab === t.key ? '2px solid #00e5ff' : '2px solid transparent', fontSize: '9px', letterSpacing: '0.08em' }}>
+              style={{ color: activeTab === t.key ? '#E8365D' : '#4a5568', borderBottom: activeTab === t.key ? '2px solid #E8365D' : '2px solid transparent', fontSize: '9px', letterSpacing: '0.08em' }}>
               {t.icon} {t.label}
             </button>
           ))}
@@ -128,10 +130,10 @@ export default function SDLCPage() {
         {activeTab === 'pipeline' && (
           <>
             {/* Flow Overview */}
-            <div className="rounded-xl p-4" style={{ background: '#0a0e14', border: '1px solid #111820' }}>
+            <div className="rounded-xl p-4" style={{ background: '#0a0e14', border: '1px solid #181218' }}>
               <div className="font-orbitron text-xs font-bold mb-3" style={{ color: '#374151', fontSize: '9px', letterSpacing: '0.1em' }}>PIPELINE FLOW</div>
               <div className="flex items-start gap-0 overflow-x-auto pb-2">
-                <FlowNode icon={config.entry.icon} label={config.entry.label} sublabel="project_id + trace_id" color="#00e5ff"
+                <FlowNode icon={config.entry.icon} label={config.entry.label} sublabel="project_id + trace_id" color="#E8365D"
                   onClick={() => setEditingSection(editingSection === 'entry' ? null : 'entry')} isActive={editingSection === 'entry'} />
                 <FlowArrow />
                 <FlowNode icon={config.secretary.icon} label={config.secretary.label} sublabel="---TASKS---" color="#ff2d78"
@@ -151,7 +153,7 @@ export default function SDLCPage() {
 
             {/* Edit Entry/Secretary */}
             {editingSection === 'entry' && (
-              <EditCard title="ENTRY POINT" color="#00e5ff" onClose={() => setEditingSection(null)}>
+              <EditCard title="ENTRY POINT" color="#E8365D" onClose={() => setEditingSection(null)}>
                 <LabelInput label="Label" value={config.entry.label} onChange={v => setConfig({ ...config, entry: { ...config.entry, label: v } })} />
                 <LabelInput label="Description" value={config.entry.description} onChange={v => setConfig({ ...config, entry: { ...config.entry, description: v } })} />
               </EditCard>
@@ -164,12 +166,12 @@ export default function SDLCPage() {
             )}
 
             {/* Phases */}
-            <div className="rounded-xl overflow-hidden" style={{ background: '#0a0e14', border: '1px solid #111820' }}>
-              <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid #111820' }}>
+            <div className="rounded-xl overflow-hidden" style={{ background: '#0a0e14', border: '1px solid #181218' }}>
+              <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid #181218' }}>
                 <div className="font-orbitron text-xs font-bold" style={{ color: '#374151', fontSize: '9px', letterSpacing: '0.1em' }}>PHASES ({config.phases.length})</div>
                 <button onClick={addPhase} className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-orbitron" style={{ background: '#001a40', border: '1px solid #0066ff44', color: '#60a5fa', fontSize: '8px' }}><Plus size={10} /> ADD PHASE</button>
               </div>
-              <div className="divide-y" style={{ borderColor: '#111820' }}>
+              <div className="divide-y" style={{ borderColor: '#181218' }}>
                 {config.phases.map((phase, idx) => {
                   const isExpanded = expandedPhase === idx
                   const isEditing = editingPhase === idx
@@ -192,7 +194,7 @@ export default function SDLCPage() {
                           {phase.roles.length > 3 && <span style={{ color: '#4b5563', fontSize: '9px' }}>+{phase.roles.length - 3}</span>}
                         </div>
                         {phase.artifacts && <span className="hidden lg:flex items-center gap-1 flex-shrink-0" style={{ color: '#4b5563', fontSize: '9px' }}><FileText size={9} /> {phase.artifacts.length} artifacts</span>}
-                        <button onClick={e => { e.stopPropagation(); setEditingPhase(isEditing ? null : idx); setExpandedPhase(idx) }} className="p-1.5 rounded flex-shrink-0" style={{ background: isEditing ? '#001a40' : '#0d1117', border: `1px solid ${isEditing ? '#0066ff44' : '#1a2535'}` }}>
+                        <button onClick={e => { e.stopPropagation(); setEditingPhase(isEditing ? null : idx); setExpandedPhase(idx) }} className="p-1.5 rounded flex-shrink-0" style={{ background: isEditing ? '#001a40' : '#0F0B0D', border: `1px solid ${isEditing ? '#0066ff44' : '#2A1622'}` }}>
                           <Pencil size={10} style={{ color: isEditing ? '#60a5fa' : '#4b5563' }} />
                         </button>
                       </div>
@@ -251,7 +253,7 @@ export default function SDLCPage() {
 
             {/* Severity */}
             {config.qaLoop.severity && (
-              <div className="rounded-xl p-4" style={{ background: '#0a0e14', border: '1px solid #111820' }}>
+              <div className="rounded-xl p-4" style={{ background: '#0a0e14', border: '1px solid #181218' }}>
                 <div className="flex items-center gap-2 mb-3">
                   <Bug size={14} style={{ color: '#22c55e' }} />
                   <span className="font-orbitron text-xs font-bold" style={{ fontSize: '10px' }}>BUG SEVERITY POLICY</span>
@@ -335,17 +337,17 @@ export default function SDLCPage() {
 
             {/* Message Blocks */}
             {config.messageBlocks && (
-              <div className="rounded-xl p-4" style={{ background: '#0a0e14', border: '1px solid #111820' }}>
+              <div className="rounded-xl p-4" style={{ background: '#0a0e14', border: '1px solid #181218' }}>
                 <div className="flex items-center gap-2 mb-3">
-                  <SendIcon size={14} style={{ color: '#00e5ff' }} />
+                  <SendIcon size={14} style={{ color: '#E8365D' }} />
                   <span className="font-orbitron text-xs font-bold" style={{ fontSize: '10px' }}>MESSAGE BLOCKS</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   {config.messageBlocks.map((mb, i) => (
-                    <div key={i} className="rounded-lg p-3" style={{ background: '#070b10', border: '1px solid #1a2535' }}>
-                      <code className="font-mono text-xs font-bold" style={{ color: '#00e5ff', fontSize: '10px' }}>{mb.name}</code>
+                    <div key={i} className="rounded-lg p-3" style={{ background: '#070b10', border: '1px solid #2A1622' }}>
+                      <code className="font-mono text-xs font-bold" style={{ color: '#E8365D', fontSize: '10px' }}>{mb.name}</code>
                       <p className="text-xs mt-1" style={{ color: '#94a3b8', fontSize: '9px' }}>{mb.description}</p>
-                      <span className="font-orbitron mt-1 inline-block px-1.5 py-0.5 rounded" style={{ fontSize: '7px', color: '#4b5563', background: '#0d1117', border: '1px solid #1a2535' }}>{mb.owner}</span>
+                      <span className="font-orbitron mt-1 inline-block px-1.5 py-0.5 rounded" style={{ fontSize: '7px', color: '#4b5563', background: '#0F0B0D', border: '1px solid #2A1622' }}>{mb.owner}</span>
                     </div>
                   ))}
                 </div>
@@ -405,7 +407,7 @@ function PhaseViewDetails({ phase }: { phase: Phase }) {
         <div>
           <span className="font-orbitron" style={{ fontSize: '8px', color: '#374151' }}>REQUIRED ARTIFACTS</span>
           <div className="flex flex-wrap gap-1 mt-1">
-            {phase.artifacts.map((a, i) => <code key={i} className="px-1.5 py-0.5 rounded font-mono" style={{ background: '#0d1117', color: '#64748b', fontSize: '9px', border: '1px solid #1a2535' }}><FileText size={8} className="inline mr-0.5" style={{ verticalAlign: '-1px' }} />{a}</code>)}
+            {phase.artifacts.map((a, i) => <code key={i} className="px-1.5 py-0.5 rounded font-mono" style={{ background: '#0F0B0D', color: '#64748b', fontSize: '9px', border: '1px solid #2A1622' }}><FileText size={8} className="inline mr-0.5" style={{ verticalAlign: '-1px' }} />{a}</code>)}
           </div>
         </div>
       )}
@@ -417,12 +419,12 @@ function PhaseEditForm({ phase, idx, config, updatePhase, removePhase, movePhase
   const addRole = () => { if (!newRole.trim()) return; updatePhase(idx, { roles: [...phase.roles, newRole.trim()] }); setNewRole('') }
   const addArtifact = () => { if (!newArtifact.trim()) return; updatePhase(idx, { artifacts: [...(phase.artifacts || []), newArtifact.trim()] }); setNewArtifact('') }
   return (
-    <div className="rounded-lg p-4 space-y-3" style={{ background: '#070b10', border: '1px solid #1a2535' }}>
+    <div className="rounded-lg p-4 space-y-3" style={{ background: '#070b10', border: '1px solid #2A1622' }}>
       <div className="grid grid-cols-2 gap-3">
         <LabelInput label="Phase Name" value={phase.name} onChange={(v: string) => updatePhase(idx, { name: v })} />
         <div>
           <label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#374151' }}>ICON</label>
-          <div className="flex gap-1 flex-wrap">{PRESET_ICONS.map(ic => <button key={ic} onClick={() => updatePhase(idx, { icon: ic })} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: phase.icon === ic ? `${phase.color}20` : '#0d1117', border: `1px solid ${phase.icon === ic ? phase.color : '#1a2535'}` }}>{ic}</button>)}</div>
+          <div className="flex gap-1 flex-wrap">{PRESET_ICONS.map(ic => <button key={ic} onClick={() => updatePhase(idx, { icon: ic })} className="w-6 h-6 rounded flex items-center justify-center text-sm" style={{ background: phase.icon === ic ? `${phase.color}20` : '#0F0B0D', border: `1px solid ${phase.icon === ic ? phase.color : '#2A1622'}` }}>{ic}</button>)}</div>
         </div>
       </div>
       <LabelTextarea label="Description" value={phase.description} onChange={(v: string) => updatePhase(idx, { description: v })} />
@@ -432,17 +434,17 @@ function PhaseEditForm({ phase, idx, config, updatePhase, removePhase, movePhase
       <div>
         <label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#374151' }}>ROLES ({phase.roles.length})</label>
         <div className="flex flex-wrap gap-1 mb-2">{phase.roles.map((r: string, ri: number) => <span key={ri} className="flex items-center gap-1 px-2 py-0.5 rounded" style={{ background: `${phase.color}15`, color: phase.color, fontSize: '10px', border: `1px solid ${phase.color}33` }}>{r}<button onClick={() => updatePhase(idx, { roles: phase.roles.filter((_: any, i: number) => i !== ri) })}><X size={8} /></button></span>)}</div>
-        <div className="flex gap-2"><input value={newRole} onChange={(e: any) => setNewRole(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && addRole()} className="flex-1 px-2 py-1 rounded text-xs bg-transparent outline-none" style={{ border: '1px solid #1a2535', color: '#94a3b8', fontSize: '10px' }} placeholder="Add role…" /><button onClick={addRole} className="px-2 py-1 rounded" style={{ background: '#001a40', border: '1px solid #0066ff44', color: '#60a5fa' }}><Plus size={10} /></button></div>
+        <div className="flex gap-2"><input value={newRole} onChange={(e: any) => setNewRole(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && addRole()} className="flex-1 px-2 py-1 rounded text-xs bg-transparent outline-none" style={{ border: '1px solid #2A1622', color: '#94a3b8', fontSize: '10px' }} placeholder="Add role…" /><button onClick={addRole} className="px-2 py-1 rounded" style={{ background: '#001a40', border: '1px solid #0066ff44', color: '#60a5fa' }}><Plus size={10} /></button></div>
       </div>
       {/* Artifacts */}
       <div>
         <label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#374151' }}>ARTIFACTS ({(phase.artifacts || []).length})</label>
-        <div className="flex flex-wrap gap-1 mb-2">{(phase.artifacts || []).map((a: string, ai: number) => <code key={ai} className="flex items-center gap-1 px-1.5 py-0.5 rounded font-mono" style={{ background: '#0d1117', color: '#64748b', fontSize: '9px', border: '1px solid #1a2535' }}>{a}<button onClick={() => updatePhase(idx, { artifacts: phase.artifacts.filter((_: any, i: number) => i !== ai) })}><X size={8} /></button></code>)}</div>
-        <div className="flex gap-2"><input value={newArtifact} onChange={(e: any) => setNewArtifact(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && addArtifact()} className="flex-1 px-2 py-1 rounded text-xs bg-transparent outline-none font-mono" style={{ border: '1px solid #1a2535', color: '#94a3b8', fontSize: '10px' }} placeholder="e.g. api_contract.yaml" /><button onClick={addArtifact} className="px-2 py-1 rounded" style={{ background: '#001a40', border: '1px solid #0066ff44', color: '#60a5fa' }}><Plus size={10} /></button></div>
+        <div className="flex flex-wrap gap-1 mb-2">{(phase.artifacts || []).map((a: string, ai: number) => <code key={ai} className="flex items-center gap-1 px-1.5 py-0.5 rounded font-mono" style={{ background: '#0F0B0D', color: '#64748b', fontSize: '9px', border: '1px solid #2A1622' }}>{a}<button onClick={() => updatePhase(idx, { artifacts: phase.artifacts.filter((_: any, i: number) => i !== ai) })}><X size={8} /></button></code>)}</div>
+        <div className="flex gap-2"><input value={newArtifact} onChange={(e: any) => setNewArtifact(e.target.value)} onKeyDown={(e: any) => e.key === 'Enter' && addArtifact()} className="flex-1 px-2 py-1 rounded text-xs bg-transparent outline-none font-mono" style={{ border: '1px solid #2A1622', color: '#94a3b8', fontSize: '10px' }} placeholder="e.g. api_contract.yaml" /><button onClick={addArtifact} className="px-2 py-1 rounded" style={{ background: '#001a40', border: '1px solid #0066ff44', color: '#60a5fa' }}><Plus size={10} /></button></div>
       </div>
-      <div className="flex items-center gap-2 pt-2" style={{ borderTop: '1px solid #1a2535' }}>
-        <button onClick={() => movePhase(idx, -1)} disabled={idx === 0} className="px-2 py-1 rounded text-xs font-orbitron disabled:opacity-30" style={{ background: '#0d1117', border: '1px solid #1a2535', color: '#64748b', fontSize: '8px' }}>← UP</button>
-        <button onClick={() => movePhase(idx, 1)} disabled={idx === config.phases.length - 1} className="px-2 py-1 rounded text-xs font-orbitron disabled:opacity-30" style={{ background: '#0d1117', border: '1px solid #1a2535', color: '#64748b', fontSize: '8px' }}>DOWN →</button>
+      <div className="flex items-center gap-2 pt-2" style={{ borderTop: '1px solid #2A1622' }}>
+        <button onClick={() => movePhase(idx, -1)} disabled={idx === 0} className="px-2 py-1 rounded text-xs font-orbitron disabled:opacity-30" style={{ background: '#0F0B0D', border: '1px solid #2A1622', color: '#64748b', fontSize: '8px' }}>← UP</button>
+        <button onClick={() => movePhase(idx, 1)} disabled={idx === config.phases.length - 1} className="px-2 py-1 rounded text-xs font-orbitron disabled:opacity-30" style={{ background: '#0F0B0D', border: '1px solid #2A1622', color: '#64748b', fontSize: '8px' }}>DOWN →</button>
         <div className="flex-1" />
         <button onClick={() => removePhase(idx)} className="flex items-center gap-1 px-2 py-1 rounded font-orbitron" style={{ background: '#1a0000', border: '1px solid #ff000044', color: '#f87171', fontSize: '8px' }}><Trash2 size={9} /> DELETE</button>
       </div>
@@ -463,7 +465,7 @@ function FlowNode({ icon, label, sublabel, color, isActive, onClick }: { icon: s
 function FlowArrow({ label, small }: { label?: string; small?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center flex-shrink-0 pt-2" style={{ minWidth: small ? 28 : 40 }}>
-      <div className="flex items-center"><div style={{ width: small ? 8 : 14, height: 1, background: '#1a2535' }} /><ArrowRight size={9} style={{ color: '#1a2535', marginLeft: -3 }} /></div>
+      <div className="flex items-center"><div style={{ width: small ? 8 : 14, height: 1, background: '#2A1622' }} /><ArrowRight size={9} style={{ color: '#2A1622', marginLeft: -3 }} /></div>
       {label && <span className="font-orbitron mt-0.5" style={{ fontSize: '6px', color: '#1f2937' }}>{label}</span>}
     </div>
   )
@@ -474,7 +476,7 @@ function EditCard({ title, color, onClose, children }: { title: string; color: s
     <div className="rounded-xl p-4 space-y-3" style={{ background: '#0a0e14', border: `1px solid ${color}33` }}>
       <div className="flex items-center justify-between">
         <span className="font-orbitron text-xs font-bold" style={{ color, fontSize: '10px' }}>EDIT: {title}</span>
-        <button onClick={onClose} className="p-1 rounded" style={{ background: '#0d1117', border: '1px solid #1a2535' }}><X size={10} className="text-gray-500" /></button>
+        <button onClick={onClose} className="p-1 rounded" style={{ background: '#0F0B0D', border: '1px solid #2A1622' }}><X size={10} className="text-gray-500" /></button>
       </div>
       {children}
     </div>
@@ -483,10 +485,10 @@ function EditCard({ title, color, onClose, children }: { title: string; color: s
 
 function ToggleCard({ icon, title, color, enabled, onToggle, children }: { icon: React.ReactNode; title: string; color: string; enabled: boolean; onToggle: () => void; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl p-3" style={{ background: enabled ? '#0a0e14' : '#060608', border: `1px solid ${enabled ? `${color}33` : '#111820'}`, opacity: enabled ? 1 : 0.5 }}>
+    <div className="rounded-xl p-3" style={{ background: enabled ? '#0a0e14' : '#060608', border: `1px solid ${enabled ? `${color}33` : '#181218'}`, opacity: enabled ? 1 : 0.5 }}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5"><div style={{ color: enabled ? color : '#374151' }}>{icon}</div><span className="font-orbitron text-xs font-bold" style={{ color: enabled ? '#e2e8f0' : '#374151', fontSize: '9px' }}>{title}</span></div>
-        <button onClick={onToggle} className="relative w-7 h-3.5 rounded-full transition-colors" style={{ background: enabled ? `${color}33` : '#1a2535' }}>
+        <button onClick={onToggle} className="relative w-7 h-3.5 rounded-full transition-colors" style={{ background: enabled ? `${color}33` : '#2A1622' }}>
           <div className="absolute top-0.5 w-2.5 h-2.5 rounded-full transition-all" style={{ left: enabled ? 14 : 2, background: enabled ? color : '#374151' }} />
         </button>
       </div>
@@ -502,7 +504,7 @@ function RulesCard({ icon, title, color, description, enabled, rules, onToggle }
         <div style={{ color }}>{icon}</div>
         <span className="font-orbitron text-xs font-bold" style={{ fontSize: '10px' }}>{title}</span>
         {onToggle && (
-          <button onClick={onToggle} className="relative w-7 h-3.5 rounded-full ml-auto" style={{ background: enabled ? `${color}33` : '#1a2535' }}>
+          <button onClick={onToggle} className="relative w-7 h-3.5 rounded-full ml-auto" style={{ background: enabled ? `${color}33` : '#2A1622' }}>
             <div className="absolute top-0.5 w-2.5 h-2.5 rounded-full transition-all" style={{ left: enabled ? 14 : 2, background: enabled ? color : '#374151' }} />
           </button>
         )}
@@ -528,8 +530,8 @@ function ChecklistCard({ icon, title, color, description, items, onUpdate }: { i
 }
 
 function LabelInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (<div><label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#374151' }}>{label.toUpperCase()}</label><input value={value} onChange={e => onChange(e.target.value)} className="w-full px-2 py-1.5 rounded text-xs bg-transparent outline-none" style={{ border: '1px solid #1a2535', color: '#e2e8f0', fontSize: '11px' }} /></div>)
+  return (<div><label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#374151' }}>{label.toUpperCase()}</label><input value={value} onChange={e => onChange(e.target.value)} className="w-full px-2 py-1.5 rounded text-xs bg-transparent outline-none" style={{ border: '1px solid #2A1622', color: '#e2e8f0', fontSize: '11px' }} /></div>)
 }
 function LabelTextarea({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (<div><label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#374151' }}>{label.toUpperCase()}</label><textarea value={value} onChange={e => onChange(e.target.value)} rows={2} className="w-full px-2 py-1.5 rounded text-xs bg-transparent outline-none resize-none" style={{ border: '1px solid #1a2535', color: '#e2e8f0', fontSize: '11px' }} /></div>)
+  return (<div><label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#374151' }}>{label.toUpperCase()}</label><textarea value={value} onChange={e => onChange(e.target.value)} rows={2} className="w-full px-2 py-1.5 rounded text-xs bg-transparent outline-none resize-none" style={{ border: '1px solid #2A1622', color: '#e2e8f0', fontSize: '11px' }} /></div>)
 }

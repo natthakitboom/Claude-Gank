@@ -54,6 +54,12 @@ export default function SystemPage() {
   const [jiraResult, setJiraResult] = useState<{ ok?: boolean; display_name?: string; error?: string; cleared?: boolean } | null>(null)
   const [jiraConfigured, setJiraConfigured] = useState(false)
 
+  // Figma MCP state
+  const [figmaToken, setFigmaToken] = useState('')
+  const [figmaSaving, setFigmaSaving] = useState(false)
+  const [figmaResult, setFigmaResult] = useState<{ ok?: boolean; display_name?: string; email?: string; error?: string; cleared?: boolean } | null>(null)
+  const [figmaConfigured, setFigmaConfigured] = useState(false)
+
   // Ollama state
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
@@ -92,6 +98,7 @@ export default function SystemPage() {
       if (d.jira_base_url) setJiraBaseUrl(d.jira_base_url)
       if (d.jira_email) setJiraEmail(d.jira_email)
       if (d.jira_configured) setJiraConfigured(true)
+      if (d.figma_configured) setFigmaConfigured(true)
     })
     fetch('/api/projects').then((r) => r.json()).then((d) => setDeployProjects(Array.isArray(d) ? d : []))
   }, [])
@@ -1300,6 +1307,84 @@ export default function SystemPage() {
                 <div style={{ color: '#64748b' }}>{`  "summary": "...", "issue_type": "Bug" }`}</div>
                 <div style={{ color: '#64748b' }}>---END---</div>
                 <div className="mt-1" style={{ color: '#374151' }}>actions: create_issue · transition · comment</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Figma MCP */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>FIGMA MCP</div>
+              <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '7px', background: figmaConfigured ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)', border: `1px solid ${figmaConfigured ? 'rgba(34,197,94,0.25)' : 'rgba(100,116,139,0.2)'}`, color: figmaConfigured ? '#22c55e' : '#64748b' }}>
+                {figmaConfigured ? '● CONNECTED' : '● NOT SET'}
+              </span>
+            </div>
+            <div className="rounded-xl p-4 space-y-3" style={{ background: '#181218', border: '1px solid #1a1020' }}>
+              <div>
+                <div className="font-orbitron mb-1.5" style={{ fontSize: '8px', color: '#374151', letterSpacing: '0.05em' }}>PERSONAL ACCESS TOKEN</div>
+                <input
+                  type="password"
+                  className="w-full rounded-lg px-3 py-2 text-sm text-white font-mono"
+                  style={{ background: '#0F0B0D', border: '1px solid #2A1622', outline: 'none' }}
+                  placeholder={figmaConfigured ? '••••••••••••••• (configured)' : 'figd_xxxxxxxxxxxxxxxxxx'}
+                  value={figmaToken}
+                  onChange={e => setFigmaToken(e.target.value)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <a
+                  href="https://www.figma.com/developers/api#access-tokens"
+                  target="_blank" rel="noopener noreferrer"
+                  className="font-orbitron text-blue-400 hover:text-blue-300 transition-colors"
+                  style={{ fontSize: '8px' }}
+                >
+                  ดูวิธีสร้าง token →
+                </a>
+                <button
+                  disabled={figmaSaving}
+                  onClick={async () => {
+                    setFigmaSaving(true)
+                    setFigmaResult(null)
+                    const res = await fetch('/api/system/config', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ figma_access_token: figmaToken }),
+                    })
+                    const data = await res.json()
+                    setFigmaResult(data)
+                    if (data.ok) { setFigmaConfigured(!!figmaToken); setFigmaToken('') }
+                    setFigmaSaving(false)
+                  }}
+                  className="font-orbitron px-3 py-1.5 rounded-lg transition-all"
+                  style={{ fontSize: '9px', background: figmaSaving ? '#1a0d20' : '#2d0a3d', border: '1px solid #7c3aed50', color: figmaSaving ? '#6b7280' : '#a78bfa', cursor: figmaSaving ? 'not-allowed' : 'pointer', letterSpacing: '0.05em' }}
+                >
+                  {figmaSaving ? '⏳...' : '🎨 SAVE & TEST'}
+                </button>
+              </div>
+
+              {figmaResult && (
+                <div className="rounded-lg px-3 py-2" style={{ background: figmaResult.ok ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${figmaResult.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                  {figmaResult.ok ? (
+                    <div className="font-mono text-xs" style={{ color: '#22c55e' }}>
+                      {figmaResult.cleared ? '✅ Figma token cleared' : `✅ Connected as ${figmaResult.display_name} (${figmaResult.email})`}
+                    </div>
+                  ) : (
+                    <div className="font-mono text-xs" style={{ color: '#ef4444' }}>❌ {figmaResult.error}</div>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-lg p-3" style={{ background: '#0F0B0D', border: '1px dashed #2A1622' }}>
+                <div className="font-orbitron mb-2" style={{ fontSize: '8px', color: '#374151', letterSpacing: '0.05em' }}>MCP SERVER CONFIG</div>
+                <div className="font-mono space-y-0.5" style={{ fontSize: '9px', color: '#4b5563' }}>
+                  <div style={{ color: '#64748b' }}>{`// เขียนให้อัตโนมัติใน .claude/settings.local.json`}</div>
+                  <div style={{ color: '#64748b' }}>{`"figma": {`}</div>
+                  <div style={{ color: '#64748b' }}>{`  "command": "npx",`}</div>
+                  <div style={{ color: '#64748b' }}>{`  "args": ["-y", "@figma/mcp-server"],`}</div>
+                  <div style={{ color: '#64748b' }}>{`  "env": { "FIGMA_ACCESS_TOKEN": "..." }`}</div>
+                  <div style={{ color: '#64748b' }}>{`}`}</div>
+                  <div className="mt-1.5" style={{ color: '#374151' }}>รีสตาร์ท Claude Code เพื่อให้ MCP มีผล</div>
+                </div>
               </div>
             </div>
           </div>

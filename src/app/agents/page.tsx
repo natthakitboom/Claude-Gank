@@ -37,6 +37,12 @@ const SHORT_MODEL: Record<string, string> = {
   'claude-opus-4-6': 'Opus',
 }
 
+const MODEL_COLOR: Record<string, { bg: string; border: string; text: string }> = {
+  'claude-haiku-4-5-20251001': { bg: '#0a1a2e', border: '#1e4d7a', text: '#4da6e0' },
+  'claude-sonnet-4-6':         { bg: '#1a0e2e', border: '#5a2d9a', text: '#b07aff' },
+  'claude-opus-4-6':           { bg: '#2e1a0a', border: '#9a5a1e', text: '#ffaa4d' },
+}
+
 /* ── status dot color ── */
 const STATUS_COLOR: Record<string, string> = {
   working: '#22c55e',
@@ -56,10 +62,10 @@ function AgentSideCard({
   return (
     <button
       onClick={onClick}
-      className="group w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-all relative overflow-hidden"
+      className={`group w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-all relative overflow-hidden${isWorking ? ' agent-card-shimmer' : ''}`}
       style={{
-        background: selected ? `${tc}12` : 'transparent',
-        borderLeft: `2px solid ${selected ? tc : 'transparent'}`,
+        background: selected ? `${tc}12` : isWorking ? 'rgba(34,197,94,0.05)' : 'transparent',
+        borderLeft: `2px solid ${selected ? tc : isWorking ? '#22c55e' : 'transparent'}`,
       }}
     >
       {/* hover bg */}
@@ -68,48 +74,63 @@ function AgentSideCard({
         style={{ background: `${tc}08` }}
       />
 
-      {/* working pulse overlay */}
-      {isWorking && !selected && (
+      {/* working — animated left border breathe */}
+      {isWorking && (
         <div
-          className="absolute left-0 top-0 bottom-0 w-0.5 opacity-60"
+          className="absolute left-0 top-0 bottom-0 w-0.5"
           style={{
-            background: tc,
-            animation: 'pulse 1.8s ease-in-out infinite',
+            background: 'linear-gradient(180deg, transparent, #22c55e, transparent)',
+            animation: 'agent-border-breathe 1.2s ease-in-out infinite',
           }}
         />
       )}
 
       {/* sprite */}
-      <div className="relative flex-shrink-0">
+      <div className={`relative flex-shrink-0${isWorking ? ' agent-working-ring' : ''}`}>
         <PixelSprite agentId={agent.id} size={32} />
         {isWorking && (
           <span
             className="absolute -bottom-0.5 -right-0.5 rounded-full"
-            style={{ width: 7, height: 7, background: '#22c55e', boxShadow: '0 0 6px #22c55e', border: '1px solid #09080f' }}
+            style={{ width: 8, height: 8, background: '#22c55e', boxShadow: '0 0 8px #22c55e, 0 0 16px rgba(34,197,94,0.4)', border: '1.5px solid #09080f' }}
           />
         )}
       </div>
 
       {/* info */}
       <div className="flex-1 min-w-0">
-        <div
-          className="text-sm font-medium truncate leading-tight"
-          style={{ color: selected ? '#fff' : isWorking ? '#e2e8f0' : '#9591b4', fontSize: 12 }}
-        >
-          {displayName}
+        <div className="flex items-center gap-1.5">
+          <div
+            className="text-sm font-medium truncate leading-tight"
+            style={{ color: selected ? '#fff' : isWorking ? '#ffffff' : '#9591b4', fontSize: 12 }}
+          >
+            {displayName}
+          </div>
+          {isWorking && (
+            <span
+              className="font-orbitron flex-shrink-0 px-1 py-px rounded"
+              style={{ fontSize: 6.5, letterSpacing: '0.08em', background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.35)', animation: 'agent-border-breathe 1.2s ease-in-out infinite' }}
+            >
+              WORKING
+            </span>
+          )}
         </div>
-        <div className="truncate leading-tight mt-0.5" style={{ fontSize: 9.5, color: '#4b5563' }}>
+        <div className="truncate leading-tight mt-0.5" style={{ fontSize: 9.5, color: isWorking ? '#4ade80' : '#4b5563' }}>
           {agent.role}
         </div>
       </div>
 
       {/* model badge */}
-      <div
-        className="font-orbitron flex-shrink-0 px-1.5 py-0.5 rounded"
-        style={{ fontSize: 7, letterSpacing: '0.04em', background: '#0d0b18', color: '#3d3660', border: '1px solid #1a1530' }}
-      >
-        {SHORT_MODEL[agent.model] || 'AI'}
-      </div>
+      {(() => {
+        const mc = MODEL_COLOR[agent.model] || { bg: '#0d0b18', border: '#1a1530', text: '#4b5563' }
+        return (
+          <div
+            className="font-orbitron flex-shrink-0 px-1.5 py-0.5 rounded"
+            style={{ fontSize: 8, letterSpacing: '0.05em', background: mc.bg, color: mc.text, border: `1px solid ${mc.border}`, fontWeight: 700 }}
+          >
+            {SHORT_MODEL[agent.model] || 'AI'}
+          </div>
+        )
+      })()}
 
       {/* delete ✕ — visible on hover */}
       <button
@@ -195,9 +216,20 @@ function AgentsContent() {
   const openEdit = () => { if (!selected) return; setEditForm({ ...selected }); setShowEditModal(true) }
   const saveEdit = async () => {
     if (!selected) return
-    await fetch(`/api/agents/${selected.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editForm) })
-    setShowEditModal(false); await fetchAgents()
-    const res = await fetch(`/api/agents/${selected.id}`); setSelected(await res.json())
+    try {
+      const res = await fetch(`/api/agents/${selected.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editForm) })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        alert(`Save failed: ${err.error || res.status}`)
+        return
+      }
+      setShowEditModal(false)
+      await fetchAgents()
+      const updated = await fetch(`/api/agents/${selected.id}`)
+      setSelected(await updated.json())
+    } catch (e) {
+      alert(`Save failed: ${String(e)}`)
+    }
   }
 
   const autoGenerate = async (form: CreateForm): Promise<CreateForm> => {
@@ -351,7 +383,7 @@ function AgentsContent() {
         {/* ── LEFT SIDEBAR: Agent Roster ── */}
         <div
           className="flex-shrink-0 flex flex-col"
-          style={{ width: 220, background: '#0d0b18', borderRight: '1px solid #1a1530' }}
+          style={{ width: 320, background: '#0d0b18', borderRight: '1px solid #1a1530' }}
         >
           {/* + NEW AGENT button at top of sidebar */}
           <button

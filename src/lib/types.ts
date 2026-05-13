@@ -1,6 +1,7 @@
 export interface Agent {
   id: string
   name: string
+  name_en?: string
   role: string
   team: string
   model: string

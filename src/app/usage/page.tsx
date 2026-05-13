@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { Zap, Calendar, TrendingUp, Clock, BarChart2, Bot } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SessionData {
@@ -112,7 +113,7 @@ function MiniBar({
     <div className="flex flex-col items-center gap-1" style={{ flex: 1, minWidth: 0 }}>
       <div
         className="w-full relative rounded-sm overflow-hidden"
-        style={{ height: '64px', background: '#0a0e16', border: '1px solid #111820' }}
+        style={{ height: '64px', background: '#0a0e16', border: '1px solid #181218' }}
       >
         <div
           className="absolute bottom-0 left-0 right-0 rounded-sm transition-all duration-500"
@@ -141,6 +142,7 @@ function MiniBar({
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 export default function UsagePage() {
+  const { t } = useLanguage()
   const [data, setData] = useState<UsageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -172,7 +174,7 @@ export default function UsagePage() {
         <div className="text-center space-y-3">
           <div
             className="w-8 h-8 border-2 rounded-full mx-auto animate-spin"
-            style={{ borderColor: '#00e5ff', borderTopColor: 'transparent' }}
+            style={{ borderColor: '#E8365D', borderTopColor: 'transparent' }}
           />
           <p className="font-orbitron text-gray-500" style={{ fontSize: '10px', letterSpacing: '0.1em' }}>
             LOADING USAGE DATA...
@@ -215,10 +217,10 @@ export default function UsagePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-orbitron text-white font-bold" style={{ fontSize: '18px', letterSpacing: '0.12em' }}>
-            USAGE
+            {t('usage_title')}
           </h1>
           <p className="font-orbitron text-gray-600 mt-0.5" style={{ fontSize: '9px', letterSpacing: '0.08em' }}>
-            // CLAUDE TOKEN CONSUMPTION MONITOR
+            {t('usage_subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -235,16 +237,16 @@ export default function UsagePage() {
         {/* Session card */}
         <div
           className="rounded-lg p-5 space-y-4"
-          style={{ background: '#0a0e16', border: '1px solid #1a2535' }}
+          style={{ background: '#0a0e16', border: '1px solid #2A1622' }}
         >
           {/* Card header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div
                 className="w-8 h-8 rounded flex items-center justify-center flex-shrink-0"
-                style={{ background: '#00e5ff15', border: '1px solid #00e5ff30' }}
+                style={{ background: '#E8365D15', border: '1px solid #E8365D30' }}
               >
-                <Zap size={14} color="#00e5ff" />
+                <Zap size={14} color="#E8365D" />
               </div>
               <div>
                 <div className="font-orbitron text-white font-bold" style={{ fontSize: '11px', letterSpacing: '0.1em' }}>
@@ -257,10 +259,10 @@ export default function UsagePage() {
             </div>
             <div
               className="flex items-center gap-1.5 px-2 py-1 rounded"
-              style={{ background: '#00e5ff10', border: '1px solid #00e5ff20' }}
+              style={{ background: '#E8365D10', border: '1px solid #E8365D20' }}
             >
-              <Clock size={9} color="#00e5ff" />
-              <span className="font-orbitron font-bold" style={{ fontSize: '10px', color: '#00e5ff' }}>
+              <Clock size={9} color="#E8365D" />
+              <span className="font-orbitron font-bold" style={{ fontSize: '10px', color: '#E8365D' }}>
                 <Countdown initialMs={session.resets_in_ms} />
               </span>
             </div>
@@ -269,7 +271,7 @@ export default function UsagePage() {
           {/* Token count + progress */}
           <div className="space-y-2">
             <div className="flex items-end justify-between">
-              <span className="font-orbitron font-bold" style={{ fontSize: '32px', color: '#00e5ff', lineHeight: 1 }}>
+              <span className="font-orbitron font-bold" style={{ fontSize: '32px', color: '#E8365D', lineHeight: 1 }}>
                 {fmt(session.tokens)}
               </span>
               <span className="font-orbitron text-gray-500" style={{ fontSize: '9px' }}>
@@ -280,14 +282,14 @@ export default function UsagePage() {
             {/* Progress bar */}
             <div
               className="w-full rounded-full overflow-hidden"
-              style={{ height: '6px', background: '#111820' }}
+              style={{ height: '6px', background: '#181218' }}
             >
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{
                   width: `${sessionPct}%`,
-                  background: `linear-gradient(90deg, #00e5ff, #0080ff)`,
-                  boxShadow: `0 0 8px #00e5ff60`,
+                  background: `linear-gradient(90deg, #E8365D, #0080ff)`,
+                  boxShadow: `0 0 8px #E8365D60`,
                 }}
               />
             </div>
@@ -296,7 +298,7 @@ export default function UsagePage() {
           {/* Mini stats row */}
           <div
             className="grid grid-cols-4 gap-2 pt-2"
-            style={{ borderTop: '1px solid #111820' }}
+            style={{ borderTop: '1px solid #181218' }}
           >
             <StatBadge label="MISSIONS" value={session.missions} color="#a0aec0" />
             <StatBadge label="DONE" value={session.done_missions} color="#22c55e" />
@@ -308,7 +310,7 @@ export default function UsagePage() {
         {/* Weekly card */}
         <div
           className="rounded-lg p-5 space-y-4"
-          style={{ background: '#0a0e16', border: '1px solid #1a2535' }}
+          style={{ background: '#0a0e16', border: '1px solid #2A1622' }}
         >
           {/* Card header */}
           <div className="flex items-center justify-between">
@@ -353,7 +355,7 @@ export default function UsagePage() {
             {/* Progress bar */}
             <div
               className="w-full rounded-full overflow-hidden"
-              style={{ height: '6px', background: '#111820' }}
+              style={{ height: '6px', background: '#181218' }}
             >
               <div
                 className="h-full rounded-full transition-all duration-700"
@@ -369,7 +371,7 @@ export default function UsagePage() {
           {/* Mini stats row */}
           <div
             className="grid grid-cols-3 gap-2 pt-2"
-            style={{ borderTop: '1px solid #111820' }}
+            style={{ borderTop: '1px solid #181218' }}
           >
             <StatBadge label="MISSIONS" value={weekly.missions} color="#a0aec0" />
             <StatBadge label="DONE" value={weekly.done_tokens > 0 ? fmt(weekly.done_tokens) : '—'} color="#22c55e" />
@@ -381,7 +383,7 @@ export default function UsagePage() {
       {/* ── Daily bar chart ─────────────────────────────────────── */}
       <div
         className="rounded-lg p-5 space-y-4"
-        style={{ background: '#0a0e16', border: '1px solid #1a2535' }}
+        style={{ background: '#0a0e16', border: '1px solid #2A1622' }}
       >
         <div className="flex items-center gap-2">
           <BarChart2 size={14} color="#f59e0b" />
@@ -399,7 +401,7 @@ export default function UsagePage() {
               key={d.day}
               value={d.tokens}
               max={maxDayTokens}
-              color={d.day === new Date().toISOString().slice(0, 10) ? '#00e5ff' : '#2d7fff'}
+              color={d.day === new Date().toISOString().slice(0, 10) ? '#E8365D' : '#2d7fff'}
               label={dayLabel(d.day)}
               subLabel={d.missions > 0 ? `${d.missions}m` : undefined}
             />
@@ -407,7 +409,7 @@ export default function UsagePage() {
         </div>
 
         {/* Row stats */}
-        <div className="flex gap-6" style={{ borderTop: '1px solid #111820', paddingTop: '12px' }}>
+        <div className="flex gap-6" style={{ borderTop: '1px solid #181218', paddingTop: '12px' }}>
           {daily.map((d) => (
             <div key={d.day} className="flex flex-col items-center gap-0.5" style={{ flex: 1 }}>
               <div className="flex items-center gap-0.5">
@@ -431,7 +433,7 @@ export default function UsagePage() {
         {/* Hourly today */}
         <div
           className="rounded-lg p-5 space-y-4"
-          style={{ background: '#0a0e16', border: '1px solid #1a2535' }}
+          style={{ background: '#0a0e16', border: '1px solid #2A1622' }}
         >
           <div className="flex items-center gap-2">
             <TrendingUp size={14} color="#22c55e" />
@@ -479,7 +481,7 @@ export default function UsagePage() {
         {/* Top agents */}
         <div
           className="rounded-lg p-5 space-y-3"
-          style={{ background: '#0a0e16', border: '1px solid #1a2535' }}
+          style={{ background: '#0a0e16', border: '1px solid #2A1622' }}
         >
           <div className="flex items-center gap-2">
             <Bot size={14} color="#06b6d4" />
@@ -514,7 +516,7 @@ export default function UsagePage() {
                   </div>
                   <div
                     className="w-full rounded-full overflow-hidden"
-                    style={{ height: '3px', background: '#111820' }}
+                    style={{ height: '3px', background: '#181218' }}
                   >
                     <div
                       className="h-full rounded-full transition-all duration-700"

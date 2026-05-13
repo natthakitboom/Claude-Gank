@@ -28,20 +28,66 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(params.id) as any
   if (!project) return NextResponse.json({ error: 'not found' }, { status: 404 })
 
-  // rescan_accounts: re-parse demo accounts from integration_output in missions
+  // rescan_accounts: re-parse demo accounts from all phase 4 + integration output
   if (rescan_accounts) {
-    const phase4 = db.prepare(`
+    // Gather ALL integration-related mission outputs (any phase)
+    const integrationMissions = db.prepare(`
       SELECT output FROM missions
-      WHERE parent_mission_id = ? AND phase = 4 AND status = 'done'
-      ORDER BY created_at DESC LIMIT 1
-    `).get(project.mission_id) as { output: string } | undefined
+      WHERE parent_mission_id = ?
+        AND status = 'done'
+        AND (phase >= 4 OR title LIKE '%Integration%' OR title LIKE '%Docker%' OR title LIKE '%integration%')
+      ORDER BY created_at DESC
+    `).all(project.mission_id) as { output: string }[]
 
-    const text = phase4?.output || ''
-    const demoAccountsJson = parseDemoAccountsJson(text)
+    const combinedText = [
+      project.integration_output || '',
+      ...integrationMissions.map((m: any) => m.output || ''),
+    ].join('\n\n')
+
+    const demoAccountsJson = parseDemoAccountsJson(combinedText)
+
+    // Also try to extract port info from markdown tables if not already saved
+    let webPort = project.web_port
+    let adminerPort = project.adminer_port
+    let dbUser = project.db_user
+    let dbPass = project.db_password
+
+    if (!webPort) {
+      // Match table rows like: | Frontend Web | http://localhost:3001 | ✅ | 3001 |
+      const webMatch = combinedText.match(/[Ff]rontend[^|]*\|[^|]*localhost:(\d{3,5})/i)
+        || combinedText.match(/localhost:(\d{3,5})[^\d\n]*(?:frontend|web app|next)/i)
+      if (webMatch) webPort = Number(webMatch[1])
+    }
+    if (!adminerPort) {
+      const adminerMatch = combinedText.match(/[Cc]loud[Bb]eaver[^|]*\|[^|]*localhost:(\d{3,5})/i)
+        || combinedText.match(/localhost:(\d{3,5})[^\d\n]*(?:cloudbeaver|adminer|db admin)/i)
+      if (adminerMatch) adminerPort = Number(adminerMatch[1])
+    }
+    if (!dbUser) {
+      const userMatch = combinedText.match(/(?:Username|POSTGRES_USER|DB User)[:\s]+`?([a-zA-Z0-9_]+)`?/i)
+      if (userMatch) dbUser = userMatch[1]
+    }
+    if (!dbPass) {
+      const passMatch = combinedText.match(/(?:Password|POSTGRES_PASSWORD|DB Pass(?:word)?)[:\s]+`?([^\s`\n|]+)`?/i)
+      if (passMatch) dbPass = passMatch[1]
+    }
 
     ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
-    db.prepare('UPDATE projects SET demo_accounts_json = ? WHERE id = ?').run(demoAccountsJson, params.id)
-    return NextResponse.json({ ok: true, accounts: demoAccountsJson ? JSON.parse(demoAccountsJson) : [] })
+    db.prepare(`
+      UPDATE projects SET
+        demo_accounts_json = ?,
+        web_port     = COALESCE(?, web_port),
+        adminer_port = COALESCE(?, adminer_port),
+        db_user      = COALESCE(?, db_user),
+        db_password  = COALESCE(?, db_password)
+      WHERE id = ?
+    `).run(demoAccountsJson, webPort || null, adminerPort || null, dbUser || null, dbPass || null, params.id)
+
+    return NextResponse.json({
+      ok: true,
+      accounts: demoAccountsJson ? JSON.parse(demoAccountsJson) : [],
+      web_port: webPort, adminer_port: adminerPort,
+    })
   }
 
   ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')

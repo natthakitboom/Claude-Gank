@@ -9,17 +9,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        'agent-bg': '#0a0e1a',
-        'panel-bg': '#111827',
-        'card-bg': '#1a2235',
-        'border-glow': '#1e3a5f',
+        'agent-bg': '#0A0709',
+        'panel-bg': '#181218',
+        'card-bg': '#201520',
+        'border-glow': '#4A2D3C',
         'accent-blue': '#3b82f6',
-        'accent-cyan': '#06b6d4',
+        'accent-cyan': '#D4436B',
         'accent-green': '#10b981',
         'accent-purple': '#8b5cf6',
         'accent-orange': '#f59e0b',
         'accent-red': '#ef4444',
-        'accent-pink': '#ec4899',
+        'accent-pink': '#D4436B',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',

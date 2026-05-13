@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import type { Agent, Mission } from '@/lib/types'
 import PixelSprite from '@/components/PixelSprite'
+import { useLanguage } from '@/lib/i18n'
 
 const TEAM_CAT_CLASS: Record<string, string> = { CORE: 'cat-core', TECH: 'cat-tech', CREATIVE: 'cat-creative', BUSINESS: 'cat-biz', FINANCE: 'cat-finance' }
 const TEAM_DISPLAY: Record<string, string> = { CORE: 'CORE', TECH: 'TECH', CREATIVE: 'CREATIVE', BUSINESS: 'BIZ', FINANCE: 'FINANCE' }
@@ -17,6 +18,7 @@ interface MissionTemplate {
 }
 
 export default function MissionsPage() {
+  const { t } = useLanguage()
   const [missions, setMissions] = useState<MissionRow[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [selected, setSelected] = useState<MissionRow | null>(null)
@@ -251,7 +253,7 @@ export default function MissionsPage() {
   }
 
   const statusColor = (s: string) => s === 'done' ? '#22c55e' : s === 'running' ? '#2d7fff' : s === 'failed' ? '#ef4444' : s === 'waiting' || s === 'waiting_phase' ? '#f59e0b' : s === 'waiting_retest' ? '#a855f7' : '#374151'
-  const statusBg = (s: string) => s === 'done' ? 'rgba(34,197,94,0.15)' : s === 'running' ? 'rgba(45,127,255,0.15)' : s === 'failed' ? 'rgba(239,68,68,0.15)' : s === 'waiting' || s === 'waiting_phase' ? 'rgba(245,158,11,0.15)' : s === 'waiting_retest' ? 'rgba(168,85,247,0.15)' : '#111820'
+  const statusBg = (s: string) => s === 'done' ? 'rgba(34,197,94,0.15)' : s === 'running' ? 'rgba(45,127,255,0.15)' : s === 'failed' ? 'rgba(239,68,68,0.15)' : s === 'waiting' || s === 'waiting_phase' ? 'rgba(245,158,11,0.15)' : s === 'waiting_retest' ? 'rgba(168,85,247,0.15)' : '#181218'
   const prioColor = (p: string) => p === 'urgent' ? '#ef4444' : p === 'high' ? '#f59e0b' : '#374151'
 
   const pendingCount = missions.filter(m => m.status === 'pending').length
@@ -260,11 +262,11 @@ export default function MissionsPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Left: Mission List */}
-      <div className="w-72 flex-shrink-0 flex flex-col" style={{ background: '#080a0f', borderRight: '1px solid #111820' }}>
-        <div className="p-4 border-b" style={{ borderColor: '#111820' }}>
+      <div className="w-72 flex-shrink-0 flex flex-col" style={{ background: '#0A0709', borderRight: '1px solid #181218' }}>
+        <div className="p-4 border-b" style={{ borderColor: '#181218' }}>
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h1 className="font-orbitron text-sm font-bold text-white" style={{ letterSpacing: '0.08em' }}>MISSIONS</h1>
+              <h1 className="font-orbitron text-sm font-bold text-white" style={{ letterSpacing: '0.08em' }}>{t('missions_title')}</h1>
               {runningCount > 0 && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="status-dot working" />
@@ -286,8 +288,8 @@ export default function MissionsPage() {
               disabled={pendingCount === 0}
               className="flex-1 font-orbitron py-1 rounded text-xs transition-all"
               style={pendingCount > 0
-                ? { background: 'rgba(0,229,255,0.1)', border: '1px solid #00e5ff33', color: '#00e5ff', fontSize: '8px', letterSpacing: '0.05em' }
-                : { background: '#111820', color: '#1f2937', fontSize: '8px', letterSpacing: '0.05em' }}
+                ? { background: 'rgba(212,67,107,0.1)', border: '1px solid #E8365D33', color: '#E8365D', fontSize: '8px', letterSpacing: '0.05em' }
+                : { background: '#181218', color: '#1f2937', fontSize: '8px', letterSpacing: '0.05em' }}
             >
               ▶▶ ALL PENDING ({pendingCount})
             </button>
@@ -338,13 +340,13 @@ export default function MissionsPage() {
 
           {/* Status filters */}
           <div className="flex gap-1.5 flex-wrap">
-            {['all', 'pending', 'running', 'done', 'failed'].map((s) => (
+            {([['all', t('filter_all')], ['pending', t('filter_pending')], ['running', t('filter_running')], ['done', t('filter_done')], ['failed', t('filter_failed')]] as [string, string][]).map(([s, label]) => (
               <button key={s} onClick={() => setFilterStatus(s)}
                 className="font-orbitron text-xs px-2 py-1 rounded transition-all"
                 style={filterStatus === s
-                  ? { background: 'rgba(0,229,255,0.15)', color: '#00e5ff', fontSize: '9px', letterSpacing: '0.05em' }
-                  : { background: '#111820', color: '#374151', fontSize: '9px', letterSpacing: '0.05em' }}>
-                {s.toUpperCase()}
+                  ? { background: 'rgba(212,67,107,0.15)', color: '#E8365D', fontSize: '9px', letterSpacing: '0.05em' }
+                  : { background: '#181218', color: '#374151', fontSize: '9px', letterSpacing: '0.05em' }}>
+                {label}
               </button>
             ))}
           </div>
@@ -361,14 +363,14 @@ export default function MissionsPage() {
             return (
               <div key={m.id} className="relative" style={{ marginLeft: isSub ? 12 : 0 }}>
                 {isSub && (
-                  <div className="absolute left-0 top-4" style={{ width: 8, height: 1, background: '#1e3a5f' }} />
+                  <div className="absolute left-0 top-4" style={{ width: 8, height: 1, background: '#3D1E2C' }} />
                 )}
                 <div
                   className="absolute z-10 w-3.5 h-3.5 rounded cursor-pointer flex items-center justify-center"
                   style={{
                     top: 8, left: isSub ? 10 : 6,
-                    background: selectedIds.has(m.id) ? '#2d7fff' : '#111820',
-                    border: `1px solid ${selectedIds.has(m.id) ? '#2d7fff' : '#1a2535'}`,
+                    background: selectedIds.has(m.id) ? '#2d7fff' : '#181218',
+                    border: `1px solid ${selectedIds.has(m.id) ? '#2d7fff' : '#2A1622'}`,
                   }}
                   onClick={(e) => { e.stopPropagation(); toggleSelect(m.id) }}
                 >
@@ -379,8 +381,8 @@ export default function MissionsPage() {
                   className="w-full text-left rounded-lg p-3 mission-card transition-all"
                   style={{
                     paddingLeft: isSub ? 28 : 28,
-                    background: selected?.id === m.id ? '#0f1420' : '#111827',
-                    border: `1px solid ${selected?.id === m.id ? '#1e3a5f' : isParent ? 'rgba(168,85,247,0.25)' : isBatchRunning ? '#2d7fff44' : '#1a2030'}`,
+                    background: selected?.id === m.id ? '#0f1420' : '#181218',
+                    border: `1px solid ${selected?.id === m.id ? '#3D1E2C' : isParent ? 'rgba(168,85,247,0.25)' : isBatchRunning ? '#2d7fff44' : '#1a2030'}`,
                   }}>
                   <div className="flex items-start gap-2">
                     <PixelSprite agentId={m.agent_id} size={28} />
@@ -396,7 +398,7 @@ export default function MissionsPage() {
                         <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '8px', background: statusBg(m.status), color: statusColor(m.status) }}>
                           {isBatchRunning && m.status !== 'running' ? 'QUEUED' : m.status === 'waiting_phase' ? 'WAITING' : m.status === 'waiting_retest' ? 'RETEST' : m.status.toUpperCase()}
                         </span>
-                        <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '8px', background: '#111820', color: prioColor(m.priority) }}>
+                        <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '8px', background: '#181218', color: prioColor(m.priority) }}>
                           {m.priority.toUpperCase()}
                         </span>
                       </div>
@@ -423,7 +425,7 @@ export default function MissionsPage() {
           </div>
         ) : (
           <>
-            <div className="flex-shrink-0 p-5 border-b" style={{ background: '#111827', borderColor: '#111820' }}>
+            <div className="flex-shrink-0 p-5 border-b" style={{ background: '#181218', borderColor: '#181218' }}>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <PixelSprite agentId={selected.agent_id} size={36} />
@@ -453,7 +455,7 @@ export default function MissionsPage() {
                   )}
                   {selected.status === 'done' && (
                     <>
-                      <button onClick={() => executeMission(selected.id)} className="font-orbitron px-4 py-2 rounded text-xs" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b', letterSpacing: '0.08em' }}>RE-RUN</button>
+                      <button onClick={() => executeMission(selected.id)} className="font-orbitron px-4 py-2 rounded text-xs" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>RE-RUN</button>
                       <button
                         onClick={async () => {
                           const output = streamOutput || selected.output || ''
@@ -477,21 +479,21 @@ export default function MissionsPage() {
                           })
                         }}
                         className="font-orbitron px-3 py-2 rounded text-xs"
-                        style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b', letterSpacing: '0.08em' }}
+                        style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}
                         title="Send to LINE/Teams"
                       >📤</button>
                     </>
                   )}
                 </div>
               </div>
-              <div className="mt-3 rounded-lg p-3" style={{ background: '#080a0f', border: '1px solid #111820' }}>
+              <div className="mt-3 rounded-lg p-3" style={{ background: '#0A0709', border: '1px solid #181218' }}>
                 <div className="font-orbitron mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>MISSION BRIEF</div>
                 <div className="text-sm" style={{ color: '#94a3b8' }}>{selected.description}</div>
               </div>
             </div>
 
             <div className="flex-1 overflow-hidden flex flex-col">
-              <div className="flex-shrink-0 px-5 py-3 flex items-center justify-between border-b" style={{ borderColor: '#111820' }}>
+              <div className="flex-shrink-0 px-5 py-3 flex items-center justify-between border-b" style={{ borderColor: '#181218' }}>
                 <span className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>OUTPUT TERMINAL</span>
                 {isStreaming && (
                   <div className="flex items-center gap-2">
@@ -523,8 +525,8 @@ export default function MissionsPage() {
       {/* Deploy to Team Modal */}
       {showTeamModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#111827', border: '1px solid rgba(168,85,247,0.3)' }}>
-            <div className="p-5 border-b" style={{ borderColor: '#1a2535' }}>
+          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid rgba(168,85,247,0.3)' }}>
+            <div className="p-5 border-b" style={{ borderColor: '#2A1622' }}>
               <div className="flex items-center gap-2">
                 <span style={{ fontSize: '18px' }}>🏢</span>
                 <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>DEPLOY TO TEAM</span>
@@ -541,13 +543,13 @@ export default function MissionsPage() {
                       <button
                         onClick={() => setShowTeamTplPicker(v => !v)}
                         className="font-orbitron px-2 py-0.5 rounded transition-all"
-                        style={{ fontSize: '7px', background: showTeamTplPicker ? 'rgba(45,127,255,0.2)' : '#111820', border: `1px solid ${showTeamTplPicker ? '#2d7fff44' : '#1a2535'}`, color: showTeamTplPicker ? '#2d7fff' : '#374151', letterSpacing: '0.05em' }}
+                        style={{ fontSize: '7px', background: showTeamTplPicker ? 'rgba(45,127,255,0.2)' : '#181218', border: `1px solid ${showTeamTplPicker ? '#2d7fff44' : '#2A1622'}`, color: showTeamTplPicker ? '#2d7fff' : '#374151', letterSpacing: '0.05em' }}
                       >
                         {showTeamTplPicker ? '▲ HIDE' : '▼ PICK TEMPLATE'}
                       </button>
                     </div>
                     {showTeamTplPicker && (
-                      <div className="mb-2 p-2 rounded-lg" style={{ background: '#080a0f', border: '1px solid #111820' }}>
+                      <div className="mb-2 p-2 rounded-lg" style={{ background: '#0A0709', border: '1px solid #181218' }}>
                         {/* Category tabs */}
                         {['tech', 'business', 'creative', 'finance'].map(cat => {
                           const catTpls = templates.filter(t => t.category === cat)
@@ -601,7 +603,7 @@ export default function MissionsPage() {
                           className="flex-1 py-1.5 rounded font-orbitron text-xs transition-all"
                           style={teamForm.priority === p
                             ? { background: p === 'urgent' ? '#ef4444' : p === 'high' ? '#f59e0b' : '#2d7fff', color: '#fff', fontSize: '9px' }
-                            : { background: '#111820', border: '1px solid #1a2535', color: '#374151', fontSize: '9px' }}>
+                            : { background: '#181218', border: '1px solid #2A1622', color: '#374151', fontSize: '9px' }}>
                           {p.toUpperCase()}
                         </button>
                       ))}
@@ -627,18 +629,18 @@ export default function MissionsPage() {
                 </div>
               )}
             </div>
-            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#1a2535' }}>
+            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#2A1622' }}>
               {!deployResult ? (
                 <>
                   <button
                     onClick={deployToTeam}
                     disabled={deploying || !teamForm.description}
                     className="flex-1 font-orbitron py-2 rounded text-sm font-bold transition-all"
-                    style={{ background: deploying || !teamForm.description ? '#1a2535' : 'rgba(168,85,247,0.8)', color: deploying || !teamForm.description ? '#374151' : '#fff', letterSpacing: '0.08em' }}
+                    style={{ background: deploying || !teamForm.description ? '#2A1622' : 'rgba(168,85,247,0.8)', color: deploying || !teamForm.description ? '#374151' : '#fff', letterSpacing: '0.08em' }}
                   >
                     {deploying ? 'กำลังวิเคราะห์...' : '🏢 DEPLOY TO TEAM'}
                   </button>
-                  <button onClick={() => { setShowTeamModal(false); setDeployResult(null); setShowTeamTplPicker(false) }} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b' }}>
+                  <button onClick={() => { setShowTeamModal(false); setDeployResult(null); setShowTeamTplPicker(false) }} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b' }}>
                     CANCEL
                   </button>
                 </>
@@ -655,8 +657,8 @@ export default function MissionsPage() {
       {/* Create Mission Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#111827', border: '1px solid #1a2535' }}>
-            <div className="p-5 border-b" style={{ borderColor: '#111820' }}>
+          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid #2A1622' }}>
+            <div className="p-5 border-b" style={{ borderColor: '#181218' }}>
               <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>DEPLOY NEW MISSION</span>
             </div>
             <div className="p-5 space-y-3">
@@ -678,7 +680,7 @@ export default function MissionsPage() {
                       className="flex-1 py-1.5 rounded font-orbitron text-xs transition-all"
                       style={form.priority === p
                         ? { background: p === 'urgent' ? '#ef4444' : p === 'high' ? '#f59e0b' : p === 'low' ? '#374151' : '#2d7fff', color: '#fff', fontSize: '9px', letterSpacing: '0.05em' }
-                        : { background: '#111820', border: '1px solid #1a2535', color: '#374151', fontSize: '9px', letterSpacing: '0.05em' }}>
+                        : { background: '#181218', border: '1px solid #2A1622', color: '#374151', fontSize: '9px', letterSpacing: '0.05em' }}>
                       {p.toUpperCase()}
                     </button>
                   ))}
@@ -689,7 +691,7 @@ export default function MissionsPage() {
                 <textarea rows={4} placeholder="อธิบายงานที่ต้องการให้ agent ทำ..." value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className="gank-input resize-none" />
               </div>
               {/* Auto-run toggle */}
-              <div className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: '#080a0f', border: '1px solid #111820' }}>
+              <div className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: '#0A0709', border: '1px solid #181218' }}>
                 <div>
                   <div className="font-orbitron" style={{ fontSize: '9px', color: '#64748b', letterSpacing: '0.08em' }}>AUTO-EXECUTE</div>
                   <div style={{ fontSize: '8px', color: '#374151' }}>รันทันทีหลัง deploy</div>
@@ -704,11 +706,11 @@ export default function MissionsPage() {
                 </button>
               </div>
             </div>
-            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#111820' }}>
+            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#181218' }}>
               <button onClick={createMission} disabled={creating || !form.title || !form.description} className="btn-deploy flex-1">
                 {creating ? 'DEPLOYING...' : autoRun ? 'DEPLOY & EXECUTE' : 'DEPLOY'}
               </button>
-              <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b', letterSpacing: '0.08em' }}>
+              <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>
                 CANCEL
               </button>
             </div>
@@ -718,8 +720,8 @@ export default function MissionsPage() {
       {/* Templates Modal */}
       {showTemplates && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-          <div className="w-full max-w-2xl rounded-xl overflow-hidden" style={{ background: '#111827', border: '1px solid rgba(245,158,11,0.3)' }}>
-            <div className="p-5 border-b" style={{ borderColor: '#1a2535' }}>
+          <div className="w-full max-w-2xl rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid rgba(245,158,11,0.3)' }}>
+            <div className="p-5 border-b" style={{ borderColor: '#2A1622' }}>
               <div className="flex items-center gap-2">
                 <span style={{ fontSize: '18px' }}>📋</span>
                 <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>MISSION TEMPLATES</span>
@@ -734,7 +736,7 @@ export default function MissionsPage() {
                       key={tpl.id}
                       onClick={() => applyTemplate(tpl)}
                       className="text-left p-3 rounded-lg transition-all hover:border-amber-500/40"
-                      style={{ background: '#0f1420', border: '1px solid #1a2535' }}
+                      style={{ background: '#0f1420', border: '1px solid #2A1622' }}
                     >
                       <div className="flex items-center gap-2 mb-1.5">
                         <span style={{ fontSize: '16px' }}>{tpl.icon}</span>
@@ -788,7 +790,7 @@ export default function MissionsPage() {
                 </div>
               )}
             </div>
-            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#1a2535' }}>
+            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#2A1622' }}>
               {selectedTpl ? (
                 <>
                   <button
@@ -798,12 +800,12 @@ export default function MissionsPage() {
                   >
                     ⚡ APPLY & DEPLOY
                   </button>
-                  <button onClick={() => setSelectedTpl(null)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b' }}>
+                  <button onClick={() => setSelectedTpl(null)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b' }}>
                     BACK
                   </button>
                 </>
               ) : (
-                <button onClick={() => setShowTemplates(false)} className="w-full py-2 rounded font-orbitron text-xs" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b' }}>
+                <button onClick={() => setShowTemplates(false)} className="w-full py-2 rounded font-orbitron text-xs" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b' }}>
                   CANCEL
                 </button>
               )}

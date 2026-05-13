@@ -1,12 +1,14 @@
 {
   "version": "0.0.1",
   "autoPort": false,
+  "workingDirectory": "/Users/Natthakit.s/pandora_work/Claude Team Gang",
   "configurations": [
     {
-      "name": "multi-agent-dashboard",
+      "name": "claude-gang",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 9000
+      "port": 3002,
+      "workingDirectory": "/Users/Natthakit.s/pandora_work/Claude Team Gang"
     }
   ]
 }

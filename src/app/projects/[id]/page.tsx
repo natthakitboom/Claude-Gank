@@ -106,7 +106,7 @@ function EditorPane({
   return (
     <div
       className="flex flex-col min-w-0"
-      style={{ outline: isFocused ? '1px solid #00e5ff22' : 'none', flex: 1, minWidth: 0, overflow: 'hidden' }}
+      style={{ outline: isFocused ? '1px solid #D4436B22' : 'none', flex: 1, minWidth: 0, overflow: 'hidden' }}
       onClick={onFocus}
     >
       {/* Tab bar */}
@@ -575,7 +575,7 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
           <ChevronLeft size={14} />
         </a>
         <div className="w-px h-4" style={{ background: '#1a2535' }} />
-        <Code2 size={14} style={{ color: '#00e5ff' }} />
+        <Code2 size={14} style={{ color: '#D4436B' }} />
         <span className="font-orbitron text-sm font-bold text-white">{project.name}</span>
         <span className="text-gray-600 text-xs font-mono truncate hidden md:block" style={{ maxWidth: 300 }}>{project.work_dir}</span>
         <div className="flex-1" />
@@ -705,8 +705,8 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
                   onClick={() => setPanel(t.key as any)}
                   className="flex items-center gap-1.5 px-3 py-2 text-xs font-orbitron transition-colors"
                   style={{
-                    color: panel === t.key ? '#00e5ff' : '#4a5568',
-                    borderBottom: panel === t.key ? '1px solid #00e5ff' : '1px solid transparent',
+                    color: panel === t.key ? '#D4436B' : '#4a5568',
+                    borderBottom: panel === t.key ? '1px solid #D4436B' : '1px solid transparent',
                     fontSize: '9px', letterSpacing: '0.08em',
                   }}
                 >
@@ -789,7 +789,7 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
                     return (
                       <div className="space-y-1.5 py-2">
                         {isFast ? (
-                          <div className="text-xs px-2 py-1.5 rounded" style={{ background: 'rgba(0,229,255,0.05)', border: '1px solid rgba(0,229,255,0.12)', color: '#00e5ff70', fontSize: '10px' }}>
+                          <div className="text-xs px-2 py-1.5 rounded" style={{ background: 'rgba(212,67,107,0.05)', border: '1px solid rgba(212,67,107,0.12)', color: '#D4436B70', fontSize: '10px' }}>
                             ⚡ Senior Developer จะอ่านและแก้ไฟล์โดยตรงทันที — เหมือน Replit AI
                           </div>
                         ) : isCoord ? (
@@ -813,7 +813,7 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
                           border: `1px solid ${m.role === 'user' ? '#0066ff44' : '#1a2535'}`,
                           color: m.role === 'user' ? '#93c5fd' : '#94a3b8', fontSize: '11px',
                         }}>
-                        {m.agentName && <div className="font-orbitron mb-1" style={{ fontSize: '9px', color: '#00e5ff' }}>{m.agentName}</div>}
+                        {m.agentName && <div className="font-orbitron mb-1" style={{ fontSize: '9px', color: '#D4436B' }}>{m.agentName}</div>}
                         {m.text}
                       </div>
                     </div>
@@ -877,9 +877,9 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
                     }}
                     className="text-xs px-2 py-0.5 rounded transition-colors"
                     style={{
-                      background: logsStreaming ? 'rgba(239,68,68,0.1)' : 'rgba(0,229,255,0.08)',
-                      border: `1px solid ${logsStreaming ? 'rgba(239,68,68,0.3)' : 'rgba(0,229,255,0.2)'}`,
-                      color: logsStreaming ? '#f87171' : '#00e5ff',
+                      background: logsStreaming ? 'rgba(239,68,68,0.1)' : 'rgba(212,67,107,0.08)',
+                      border: `1px solid ${logsStreaming ? 'rgba(239,68,68,0.3)' : 'rgba(212,67,107,0.2)'}`,
+                      color: logsStreaming ? '#f87171' : '#D4436B',
                       fontSize: '9px',
                     }}
                   >{logsStreaming ? '■ STOP' : '▶ STREAM'}</button>
@@ -939,13 +939,13 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
                         else setGitLoading(false)
                       }}
                       className="flex items-center gap-1 px-2 py-0.5 rounded transition-colors"
-                      style={{ background: 'rgba(0,229,255,0.08)', border: '1px solid rgba(0,229,255,0.2)', color: '#00e5ff', fontSize: '9px' }}
+                      style={{ background: 'rgba(212,67,107,0.08)', border: '1px solid rgba(212,67,107,0.2)', color: '#D4436B', fontSize: '9px' }}
                     >⎇ Init Git</button>
                   )}
                   {gitHasRepo === null && (
                     <button onClick={loadGit}
                       className="px-2 py-0.5 rounded text-xs"
-                      style={{ background: 'rgba(0,229,255,0.08)', border: '1px solid rgba(0,229,255,0.2)', color: '#00e5ff', fontSize: '9px' }}>
+                      style={{ background: 'rgba(212,67,107,0.08)', border: '1px solid rgba(212,67,107,0.2)', color: '#D4436B', fontSize: '9px' }}>
                       โหลด
                     </button>
                   )}

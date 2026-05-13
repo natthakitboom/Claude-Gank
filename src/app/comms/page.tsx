@@ -4,10 +4,11 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import type { Agent } from '@/lib/types'
 import PixelSprite from '@/components/PixelSprite'
 import { ArrowRight, Play, Loader2, RefreshCw, ExternalLink, Zap } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 const TYPE_COLOR: Record<string, { bg: string; border: string; label: string; text: string }> = {
   task:      { bg: '#001a40', border: '#0066ff66', label: '#60a5fa', text: 'TASK' },
-  message:   { bg: '#0a0e14', border: '#1a2535',   label: '#64748b', text: 'MSG' },
+  message:   { bg: '#0a0e14', border: '#2A1622',   label: '#64748b', text: 'MSG' },
   result:    { bg: '#001a0a', border: '#00802066', label: '#4ade80', text: 'RESULT' },
   broadcast: { bg: '#1a000a', border: '#ff006666', label: '#f87171', text: 'BROADCAST' },
   alert:     { bg: '#1a0a00', border: '#ff660066', label: '#fb923c', text: 'ALERT' },
@@ -36,6 +37,7 @@ interface MissionStatus {
 }
 
 export default function CommsPage() {
+  const { t } = useLanguage()
   const [agents, setAgents] = useState<Agent[]>([])
   const [messages, setMessages] = useState<MessageRow[]>([])
   const [missionStatuses, setMissionStatuses] = useState<Record<string, MissionStatus>>({})
@@ -190,11 +192,11 @@ export default function CommsPage() {
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ background: '#070b10', color: '#e2e8f0' }}>
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 px-6 pt-6 pb-4" style={{ borderBottom: '1px solid #111820', background: '#0a0e14' }}>
+      <div className="flex-shrink-0 px-6 pt-6 pb-4" style={{ borderBottom: '1px solid #181218', background: '#0a0e14' }}>
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="font-orbitron font-bold text-white" style={{ fontSize: '22px', letterSpacing: '0.05em' }}>
-              COMMS
+              {t('comms_title')}
               <span className="ml-2 text-xs font-normal px-2 py-0.5 rounded" style={{ background: '#001a40', color: '#60a5fa', border: '1px solid #0066ff44', fontSize: '9px', letterSpacing: '0.08em' }}>
                 N2N ENABLED
               </span>
@@ -204,7 +206,7 @@ export default function CommsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={fetchMessages} className="p-2 rounded text-gray-600 hover:text-gray-400 transition-colors" style={{ background: '#0d1117', border: '1px solid #1a2535' }}>
+            <button onClick={fetchMessages} className="p-2 rounded text-gray-600 hover:text-gray-400 transition-colors" style={{ background: '#0F0B0D', border: '1px solid #2A1622' }}>
               <RefreshCw size={13} />
             </button>
             <button onClick={() => setShowCompose(true)} className="btn-deploy flex items-center gap-1.5">
@@ -219,22 +221,22 @@ export default function CommsPage() {
           <button onClick={() => setFilterAgent('all')}
             className="font-orbitron text-xs px-2.5 py-1 rounded transition-all"
             style={filterAgent === 'all'
-              ? { background: 'rgba(0,229,255,0.12)', color: '#00e5ff', fontSize: '9px', letterSpacing: '0.08em', border: '1px solid #00e5ff30' }
-              : { background: '#0d1117', color: '#374151', fontSize: '9px', letterSpacing: '0.08em', border: '1px solid #1a2535' }}>
+              ? { background: 'rgba(212,67,107,0.12)', color: '#E8365D', fontSize: '9px', letterSpacing: '0.08em', border: '1px solid #E8365D30' }
+              : { background: '#0F0B0D', color: '#374151', fontSize: '9px', letterSpacing: '0.08em', border: '1px solid #2A1622' }}>
             ALL AGENTS
           </button>
           {agents.map(a => (
             <button key={a.id} onClick={() => setFilterAgent(a.id)}
               className="flex items-center gap-1.5 px-2 py-1 rounded transition-all"
               style={filterAgent === a.id
-                ? { background: 'rgba(0,229,255,0.1)', border: '1px solid #00e5ff33' }
-                : { background: '#0d1117', border: '1px solid #1a2535' }}>
+                ? { background: 'rgba(212,67,107,0.1)', border: '1px solid #E8365D33' }
+                : { background: '#0F0B0D', border: '1px solid #2A1622' }}>
               <PixelSprite agentId={a.id} size={14} />
               <span className="text-xs" style={{ color: filterAgent === a.id ? '#e2e8f0' : '#4b5563', fontSize: '10px' }}>{a.name}</span>
             </button>
           ))}
 
-          <div className="w-px h-4 mx-1" style={{ background: '#1a2535' }} />
+          <div className="w-px h-4 mx-1" style={{ background: '#2A1622' }} />
 
           {/* Type filter */}
           {['all', 'task', 'message', 'result', 'broadcast'].map(t => (
@@ -242,9 +244,9 @@ export default function CommsPage() {
               className="font-orbitron px-2 py-1 rounded transition-all"
               style={{
                 fontSize: '8px', letterSpacing: '0.08em',
-                background: filterType === t ? (TYPE_COLOR[t]?.bg || '#0d1117') : '#0d1117',
-                color: filterType === t ? (TYPE_COLOR[t]?.label || '#00e5ff') : '#374151',
-                border: `1px solid ${filterType === t ? (TYPE_COLOR[t]?.border || '#00e5ff30') : '#1a2535'}`,
+                background: filterType === t ? (TYPE_COLOR[t]?.bg || '#0F0B0D') : '#0F0B0D',
+                color: filterType === t ? (TYPE_COLOR[t]?.label || '#E8365D') : '#374151',
+                border: `1px solid ${filterType === t ? (TYPE_COLOR[t]?.border || '#E8365D30') : '#2A1622'}`,
               }}>
               {t.toUpperCase()}
             </button>
@@ -324,7 +326,7 @@ export default function CommsPage() {
 
                   {/* N2N Mission Status bar */}
                   {(spawnedId || msg.type === 'task') && (
-                    <div className="flex items-center gap-2 px-4 py-2" style={{ borderTop: '1px solid #1a2535', background: '#070b10' }}>
+                    <div className="flex items-center gap-2 px-4 py-2" style={{ borderTop: '1px solid #2A1622', background: '#070b10' }}>
                       {spawnedId && spawnedStatus ? (
                         <>
                           <div className="w-1.5 h-1.5 rounded-full flex-shrink-0"
@@ -337,7 +339,7 @@ export default function CommsPage() {
                           </span>
                           <span className="font-orbitron px-1.5 py-0.5 rounded" style={{
                             fontSize: '7px',
-                            background: spawnedStatus.status === 'done' ? '#001a0a' : spawnedStatus.status === 'running' ? '#1a1000' : '#0d1117',
+                            background: spawnedStatus.status === 'done' ? '#001a0a' : spawnedStatus.status === 'running' ? '#1a1000' : '#0F0B0D',
                             color: statusDot[spawnedStatus.status] || '#64748b',
                             border: `1px solid ${statusDot[spawnedStatus.status] || '#64748b'}44`,
                           }}>
@@ -346,7 +348,7 @@ export default function CommsPage() {
                           <div className="flex-1" />
                           <a href={`/missions`} target="_blank"
                             className="flex items-center gap-1 px-2 py-0.5 rounded text-xs"
-                            style={{ background: '#0d1117', border: '1px solid #1a2535', color: '#64748b' }}>
+                            style={{ background: '#0F0B0D', border: '1px solid #2A1622', color: '#64748b' }}>
                             <ExternalLink size={9} />
                           </a>
                         </>
@@ -382,13 +384,13 @@ export default function CommsPage() {
       {/* ── Compose Modal ──────────────────────────────────────────────── */}
       {showCompose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#0d1117', border: '1px solid #1a2535' }}>
-            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid #111820' }}>
+          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#0F0B0D', border: '1px solid #2A1622' }}>
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid #181218' }}>
               <div>
                 <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>SEND TO AGENT</span>
                 <p className="font-orbitron mt-0.5" style={{ fontSize: '8px', color: '#374151', letterSpacing: '0.08em' }}>Task type → auto-executes mission for target agent</p>
               </div>
-              <Zap size={14} style={{ color: '#00e5ff' }} />
+              <Zap size={14} style={{ color: '#E8365D' }} />
             </div>
             <div className="p-5 space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -415,9 +417,9 @@ export default function CommsPage() {
                       className="flex-1 py-1.5 rounded font-orbitron text-xs transition-all"
                       style={{
                         fontSize: '9px', letterSpacing: '0.08em',
-                        background: form.type === t ? (TYPE_COLOR[t]?.bg || '#0d1117') : '#070b10',
+                        background: form.type === t ? (TYPE_COLOR[t]?.bg || '#0F0B0D') : '#070b10',
                         color: form.type === t ? (TYPE_COLOR[t]?.label || '#e2e8f0') : '#374151',
-                        border: `1px solid ${form.type === t ? (TYPE_COLOR[t]?.border || '#1a2535') : '#1a2535'}`,
+                        border: `1px solid ${form.type === t ? (TYPE_COLOR[t]?.border || '#2A1622') : '#2A1622'}`,
                       }}>
                       {t.toUpperCase()}
                     </button>
@@ -447,7 +449,7 @@ export default function CommsPage() {
                     : 'ข้อความที่ต้องการส่ง...'} />
               </div>
             </div>
-            <div className="px-5 py-4 flex gap-2" style={{ borderTop: '1px solid #111820' }}>
+            <div className="px-5 py-4 flex gap-2" style={{ borderTop: '1px solid #181218' }}>
               <button onClick={sendMessage} disabled={sending || !form.content || !form.from_agent}
                 className="btn-deploy flex-1 flex items-center justify-center gap-1.5">
                 {sending ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
@@ -455,7 +457,7 @@ export default function CommsPage() {
               </button>
               <button onClick={() => setShowCompose(false)}
                 className="px-4 py-2 rounded text-xs font-orbitron"
-                style={{ background: '#070b10', border: '1px solid #1a2535', color: '#64748b', letterSpacing: '0.08em' }}>
+                style={{ background: '#070b10', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>
                 CANCEL
               </button>
             </div>

@@ -18,6 +18,37 @@ export async function GET() {
       SUM(CASE WHEN sub.status = 'running' THEN 1 ELSE 0 END) as running_tasks,
       p.web_port, p.api_port, p.db_port, p.adminer_port, p.demo_accounts_json,
       (SELECT output FROM missions WHERE parent_mission_id = p.mission_id AND phase = 4 AND status = 'done' ORDER BY created_at DESC LIMIT 1) as integration_output,
+      -- running agent info: 2 levels deep + fallback to project root mission itself
+      COALESCE(
+        (SELECT a.name FROM missions run JOIN agents a ON run.agent_id = a.id
+          WHERE (run.parent_mission_id = p.mission_id
+                 OR run.parent_mission_id IN (SELECT id FROM missions WHERE parent_mission_id = p.mission_id))
+            AND run.status = 'running'
+          ORDER BY run.created_at DESC LIMIT 1),
+        CASE WHEN m.status = 'running' THEN (SELECT name FROM agents WHERE id = m.agent_id) END
+      ) as running_agent_name,
+      COALESCE(
+        (SELECT a.sprite FROM missions run JOIN agents a ON run.agent_id = a.id
+          WHERE (run.parent_mission_id = p.mission_id
+                 OR run.parent_mission_id IN (SELECT id FROM missions WHERE parent_mission_id = p.mission_id))
+            AND run.status = 'running'
+          ORDER BY run.created_at DESC LIMIT 1),
+        CASE WHEN m.status = 'running' THEN (SELECT sprite FROM agents WHERE id = m.agent_id) END
+      ) as running_agent_sprite,
+      COALESCE(
+        (SELECT run.title FROM missions run
+          WHERE (run.parent_mission_id = p.mission_id
+                 OR run.parent_mission_id IN (SELECT id FROM missions WHERE parent_mission_id = p.mission_id))
+            AND run.status = 'running'
+          ORDER BY run.created_at DESC LIMIT 1),
+        CASE WHEN m.status = 'running' THEN m.title END
+      ) as running_mission_title,
+      -- running_tasks_deep: 2-level deep + project root mission itself
+      (SELECT COUNT(*) FROM missions run
+        WHERE (run.parent_mission_id = p.mission_id
+               OR run.parent_mission_id IN (SELECT id FROM missions WHERE parent_mission_id = p.mission_id))
+          AND run.status = 'running')
+        + CASE WHEN m.status = 'running' THEN 1 ELSE 0 END as running_tasks_deep,
       -- stuck: has waiting/waiting_phase mission whose previous phase is all done (> 5 min ago)
       CASE WHEN EXISTS (
         SELECT 1 FROM missions stk

@@ -20,15 +20,16 @@ function getDb(): Database.Database {
     db.pragma('foreign_keys = ON')
     initializeSchema(db)
     // Boot-time cleanup: any mission still 'running' = server was killed mid-execution
+    // Reset to 'pending' so watchdog auto-retries them instead of marking failed permanently
     try {
       const cleaned = db.prepare(`
         UPDATE missions
-        SET status = 'failed',
-            error  = 'Server restarted while mission was running'
+        SET status = 'pending',
+            error  = NULL
         WHERE status = 'running'
       `).run()
       if (cleaned.changes > 0) {
-        console.log(`[boot] ⚡ Reset ${cleaned.changes} mission(s) stuck in 'running' after server restart`)
+        console.log(`[boot] ⚡ Reset ${cleaned.changes} mission(s) from 'running' → 'pending' for auto-retry`)
       }
     } catch {}
     // Note: interval watchdog is in /api/missions GET handler (setInterval unreliable in Next.js dev)
@@ -244,9 +245,64 @@ function initializeSchema(db: Database.Database) {
   `)
   db.exec(`INSERT OR IGNORE INTO system_config (id) VALUES ('default')`)
   ensureColumn(db, 'system_config', 'ollama_base_url', "TEXT NOT NULL DEFAULT 'http://localhost:11434'")
-  ensureColumn(db, 'system_config', 'jira_base_url',   "TEXT NOT NULL DEFAULT ''")
-  ensureColumn(db, 'system_config', 'jira_email',      "TEXT NOT NULL DEFAULT ''")
-  ensureColumn(db, 'system_config', 'jira_api_token',  "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'jira_base_url',       "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'jira_email',          "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'jira_api_token',      "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'figma_access_token',  "TEXT NOT NULL DEFAULT ''")
+
+  // project_templates table — reusable project blueprints with optional Figma context
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      tech_stack TEXT DEFAULT '',
+      figma_url TEXT DEFAULT '',
+      figma_node_id TEXT DEFAULT '',
+      figma_thumbnail_url TEXT DEFAULT '',
+      figma_design_context TEXT DEFAULT '',
+      system_prompt_extra TEXT DEFAULT '',
+      tags_json TEXT DEFAULT '[]',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+  // Seed starter project templates (only if table is empty)
+  const ptCount = (db.prepare('SELECT COUNT(*) as count FROM project_templates').get() as { count: number }).count
+  if (ptCount === 0) {
+    const insertPt = db.prepare(`
+      INSERT INTO project_templates (id, name, description, tech_stack, tags_json)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+    const starterTemplates = [
+      {
+        id: 'pt-webapp',
+        name: 'Web App ทั่วไป',
+        description: 'เว็บแอปพลิเคชันครบชุด พร้อม frontend, backend และ database รองรับ user authentication และ CRUD operations',
+        tech_stack: 'Next.js 15 + PostgreSQL + Docker',
+        tags_json: JSON.stringify(['web', 'fullstack']),
+      },
+      {
+        id: 'pt-api',
+        name: 'REST API Service',
+        description: 'Backend service พร้อม RESTful API, Swagger documentation, authentication middleware และ database integration',
+        tech_stack: '.NET Core 8 + PostgreSQL + Swagger',
+        tags_json: JSON.stringify(['api', 'backend']),
+      },
+      {
+        id: 'pt-landing',
+        name: 'Landing Page',
+        description: 'หน้า Landing Page สำหรับโปรโมทสินค้าหรือบริการ เน้น performance, SEO และ conversion rate optimization',
+        tech_stack: 'Next.js 15 + Tailwind + Static',
+        tags_json: JSON.stringify(['web', 'frontend']),
+      },
+    ]
+    const insertPtTx = db.transaction((rows: typeof starterTemplates) => {
+      for (const r of rows) insertPt.run(r.id, r.name, r.description, r.tech_stack, r.tags_json)
+    })
+    insertPtTx(starterTemplates)
+  }
+
   // Seed default SDLC config — always update to latest spec
   db.prepare(`INSERT OR REPLACE INTO sdlc_config (id, config_json, updated_at) VALUES ('default', ?, CURRENT_TIMESTAMP)`).run(JSON.stringify({
     name: 'Quality-First Multi-Agent SDLC',
@@ -698,6 +754,8 @@ function initializeSchema(db: Database.Database) {
   ensureColumn(db, 'projects', 'api_port',                  'INTEGER')
   ensureColumn(db, 'projects', 'db_port',                   'INTEGER')
   ensureColumn(db, 'projects', 'adminer_port',              'INTEGER')
+  ensureColumn(db, 'projects', 'template_id',               'TEXT')
+  ensureColumn(db, 'projects', 'template_name',             'TEXT')
   // IDE chat history
   try { db.exec(`
     CREATE TABLE IF NOT EXISTS ide_chat_messages (

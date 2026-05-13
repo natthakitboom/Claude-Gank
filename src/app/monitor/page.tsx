@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import PixelSprite from '@/components/PixelSprite'
+import { useLanguage } from '@/lib/i18n'
 
 // ── Types ──────────────────────────────────────────────────────
 interface LiveMission {
@@ -145,7 +146,7 @@ function AgentTerminal({ mission, expanded, onToggle }: {
         className="flex items-center gap-2 px-3 py-2 cursor-pointer"
         onClick={onToggle}
         style={{
-          background: isRunning ? `${phaseColor}10` : '#111827',
+          background: isRunning ? `${phaseColor}10` : '#181218',
           borderBottom: `1px solid ${isRunning ? phaseColor + '33' : '#1a2030'}`,
         }}
       >
@@ -325,15 +326,15 @@ function PhaseProgress({ missions }: { missions: LiveMission[] }) {
                 className="h-px"
                 style={{
                   width: 16,
-                  background: status === 'done' ? color : '#1e2d40',
+                  background: status === 'done' ? color : '#2E1E27',
                 }}
               />
             )}
             <div
               className="flex items-center gap-1 px-2 py-1 rounded"
               style={{
-                background: status === 'running' ? color + '20' : status === 'done' ? color + '10' : '#111827',
-                border: `1px solid ${status === 'running' ? color + '60' : status === 'done' ? color + '30' : '#1e2d40'}`,
+                background: status === 'running' ? color + '20' : status === 'done' ? color + '10' : '#181218',
+                border: `1px solid ${status === 'running' ? color + '60' : status === 'done' ? color + '30' : '#2E1E27'}`,
               }}
             >
               {status === 'running' && (
@@ -364,6 +365,7 @@ function PhaseProgress({ missions }: { missions: LiveMission[] }) {
 
 // ── Main Monitor Page ──────────────────────────────────────────
 export default function MonitorPage() {
+  const { t } = useLanguage()
   const [missions, setMissions] = useState<LiveMission[]>([])
   const [allProjectMissions, setAllProjectMissions] = useState<LiveMission[]>([])
   const [project, setProject] = useState<ProjectInfo | null>(null)
@@ -465,7 +467,7 @@ export default function MonitorPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="font-orbitron font-bold text-white" style={{ fontSize: '20px', letterSpacing: '0.05em' }}>
-              LIVE MONITOR
+              {t('monitor_title')}
             </h1>
             {runningCount > 0 && (
               <span className="flex items-center gap-1.5 font-orbitron px-2 py-1 rounded" style={{
@@ -484,7 +486,7 @@ export default function MonitorPage() {
             )}
             {runningCount === 0 && waitingCount === 0 && missions.length === 0 && (
               <span className="font-orbitron px-2 py-1 rounded" style={{
-                fontSize: '9px', background: '#111827', color: '#374151', border: '1px solid #1e2d40',
+                fontSize: '9px', background: '#181218', color: '#374151', border: '1px solid #2E1E27',
               }}>
                 ALL IDLE
               </span>
@@ -500,13 +502,13 @@ export default function MonitorPage() {
 
         <div className="flex items-center gap-2">
           {/* View mode toggle */}
-          <div className="flex rounded overflow-hidden" style={{ border: '1px solid #1e2d40' }}>
+          <div className="flex rounded overflow-hidden" style={{ border: '1px solid #2E1E27' }}>
             <button
               onClick={() => setViewMode('active')}
               className="font-orbitron px-3 py-1"
               style={{
                 fontSize: '8px',
-                background: viewMode === 'active' ? '#1e2d40' : 'transparent',
+                background: viewMode === 'active' ? '#2E1E27' : 'transparent',
                 color: viewMode === 'active' ? '#94a3b8' : '#374151',
                 cursor: 'pointer',
               }}
@@ -518,7 +520,7 @@ export default function MonitorPage() {
               className="font-orbitron px-3 py-1"
               style={{
                 fontSize: '8px',
-                background: viewMode === 'all' ? '#1e2d40' : 'transparent',
+                background: viewMode === 'all' ? '#2E1E27' : 'transparent',
                 color: viewMode === 'all' ? '#94a3b8' : '#374151',
                 cursor: 'pointer',
               }}
@@ -530,7 +532,7 @@ export default function MonitorPage() {
             <button
               onClick={() => setExpandedId(null)}
               className="font-orbitron px-3 py-1 rounded"
-              style={{ fontSize: '8px', background: '#1e2d40', color: '#94a3b8', cursor: 'pointer', border: '1px solid #2d3f55' }}
+              style={{ fontSize: '8px', background: '#2E1E27', color: '#94a3b8', cursor: 'pointer', border: '1px solid #2d3f55' }}
             >
               ← GRID VIEW
             </button>
@@ -552,7 +554,7 @@ export default function MonitorPage() {
           <div className="font-orbitron mt-4" style={{ fontSize: '12px', color: '#1f2937', letterSpacing: '0.1em' }}>
             NO ACTIVE MISSIONS
           </div>
-          <div className="mt-2" style={{ fontSize: '10px', color: '#111827' }}>
+          <div className="mt-2" style={{ fontSize: '10px', color: '#181218' }}>
             Deploy a mission via 🏢 TEAM to see live agent output here
           </div>
         </div>

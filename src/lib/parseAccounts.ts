@@ -24,11 +24,67 @@ function isLikelyRole(s: string): boolean {
 }
 
 export function parseDemoAccounts(text: string): DemoAccount[] {
-  // Priority 1: structured block
+  // Priority 1: structured ---DEMO-ACCOUNTS--- block
   const blockMatch = text.match(/---DEMO-ACCOUNTS---\s*([\s\S]*?)\s*---END---/)
   if (blockMatch) {
     try { return JSON.parse(blockMatch[1].trim()) as DemoAccount[] } catch {}
   }
+
+  // Priority 2: ---ACCESS-INFO--- block with demo_accounts field
+  const accessMatch = text.match(/---ACCESS-INFO---\s*([\s\S]*?)\s*---END---/)
+  if (accessMatch) {
+    try {
+      const info = JSON.parse(accessMatch[1].trim())
+      if (Array.isArray(info.demo_accounts) && info.demo_accounts.length > 0) {
+        return info.demo_accounts as DemoAccount[]
+      }
+    } catch {}
+  }
+
+  // Priority 2b: JSON object with demo_accounts anywhere near ---END--- (handles garbled marker)
+  const endIdx = text.lastIndexOf('---END---')
+  if (endIdx > 0) {
+    const chunk = text.slice(Math.max(0, endIdx - 2000), endIdx)
+    const objMatch = chunk.match(/\{[^{}]*"demo_accounts"\s*:\s*(\[[^\]]*\])[^{}]*\}/)
+    if (objMatch) {
+      try {
+        const arr = JSON.parse(objMatch[1])
+        if (Array.isArray(arr) && arr.length > 0 && arr[0].email && arr[0].password) {
+          return arr.map((a: any) => ({ role: a.role || 'User', email: a.email, password: a.password }))
+        }
+      } catch {}
+    }
+  }
+
+  // Priority 3: JSON array block containing email+password objects
+  const jsonArrayMatches = Array.from(text.matchAll(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/g))
+  for (const m of jsonArrayMatches) {
+    try {
+      const arr = JSON.parse(m[1])
+      if (Array.isArray(arr) && arr.length > 0 && arr[0].email && arr[0].password) {
+        return arr.map((a: any) => ({ role: a.role || 'User', email: a.email, password: a.password }))
+      }
+    } catch {}
+  }
+
+  // Priority 4: inline "Email: x / Password: y" or "email: x, password: y" patterns
+  const inlineAccounts: DemoAccount[] = []
+  const inlineSeen = new Set<string>()
+  const emailPassPatterns = [
+    /email[:\s]+([^\s,\n]+@[^\s,\n]+)\s*[,/|]\s*password[:\s]+([^\s,\n]+)/gi,
+    /username[:\s]+([^\s,\n]+@[^\s,\n]+)\s*[,/|]\s*password[:\s]+([^\s,\n]+)/gi,
+    /login[:\s]+([^\s,\n]+@[^\s,\n]+)\s*[,/|]\s*(?:pass(?:word)?)[:\s]+([^\s,\n]+)/gi,
+  ]
+  for (const pattern of emailPassPatterns) {
+    for (const m of Array.from(text.matchAll(pattern))) {
+      const email = stripMd(m[1])
+      const password = stripMd(m[2])
+      if (!isValidEmail(email) || inlineSeen.has(email)) continue
+      inlineSeen.add(email)
+      inlineAccounts.push({ role: 'User', email, password })
+    }
+  }
+  if (inlineAccounts.length > 0) return inlineAccounts
 
   const accounts: DemoAccount[] = []
   const seen = new Set<string>()

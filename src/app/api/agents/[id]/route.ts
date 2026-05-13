@@ -71,7 +71,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const body = await request.json()
     const db = getDb()
 
-    const allowed = ['name', 'role', 'team', 'model', 'personality', 'system_prompt', 'effort', 'sprite', 'color', 'status', 'skills_json']
+    const allowed = ['name', 'name_en', 'role', 'team', 'model', 'personality', 'system_prompt', 'effort', 'sprite', 'color', 'status', 'skills_json']
     const entries = Object.entries(body).filter(([key]) => allowed.includes(key))
 
     if (entries.length === 0) return NextResponse.json({ error: 'No valid fields' }, { status: 400 })

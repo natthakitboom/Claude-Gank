@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { execSync } from 'child_process'
 import os from 'os'
+import fs from 'fs'
+import path from 'path'
 
 const CANDIDATE_PATHS = [
   'claude',
@@ -57,6 +59,8 @@ export async function GET() {
       ollama_models: ollamaModels,
       jira_configured: !!(row?.jira_base_url && row?.jira_email && row?.jira_api_token),
       jira_api_token: undefined,
+      figma_configured: !!(row?.figma_access_token),
+      figma_access_token: undefined,
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
@@ -92,6 +96,45 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, display_name: data.displayName, account_id: data.accountId })
       } catch (e: any) {
         return NextResponse.json({ ok: false, error: `Cannot reach Jira at ${baseUrl} — ${e.message}` })
+      }
+    }
+
+    // Handle Figma config save
+    if ('figma_access_token' in body) {
+      const token = (body.figma_access_token as string || '').trim()
+      db.prepare(`UPDATE system_config SET figma_access_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'default'`).run(token)
+
+      // Write / remove MCP server entry in .claude/settings.local.json
+      const settingsPath = path.join(process.cwd(), '.claude', 'settings.local.json')
+      try {
+        const existing = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) : {}
+        if (!existing.mcpServers) existing.mcpServers = {}
+        if (token) {
+          existing.mcpServers['figma'] = {
+            command: 'npx',
+            args: ['-y', '@figma/mcp-server'],
+            env: { FIGMA_ACCESS_TOKEN: token },
+          }
+        } else {
+          delete existing.mcpServers['figma']
+        }
+        fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 2))
+      } catch (e: any) {
+        console.error('[figma-config] Failed to update settings.local.json:', e.message)
+      }
+
+      if (!token) return NextResponse.json({ ok: true, cleared: true })
+
+      try {
+        const res = await fetch('https://api.figma.com/v1/me', {
+          headers: { 'X-Figma-Token': token },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (!res.ok) return NextResponse.json({ ok: false, error: `Figma responded ${res.status} — ตรวจสอบ Personal Access Token` })
+        const data = await res.json()
+        return NextResponse.json({ ok: true, display_name: data.name || data.email, email: data.email })
+      } catch (e: any) {
+        return NextResponse.json({ ok: false, error: `Cannot reach Figma API — ${e.message}` })
       }
     }
 

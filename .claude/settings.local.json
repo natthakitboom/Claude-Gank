@@ -1,0 +1,80 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(xargs kill -9)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/agents)",
+      "Bash(curl -s http://localhost:3000/api/agents)",
+      "Bash(curl -s http://localhost:9001/api/agents)",
+      "Bash(curl *)",
+      "Bash(/usr/bin/curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:9001/)",
+      "Bash(/usr/bin/curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:9001/chat)",
+      "Bash(/usr/bin/curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:9001/missions)",
+      "Bash(/usr/bin/curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:9001/system)",
+      "Bash(/usr/bin/curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:9001/projects)",
+      "Bash(/usr/bin/curl -s http://localhost:9001/api/agents)",
+      "Bash(python3 -c ' *)",
+      "Bash(/usr/bin/curl -s -X PATCH http://localhost:9001/api/agents/agent-secretary -H 'Content-Type: application/json' -d '{\"skills_json\":\"[\\\\\"task-analysis\\\\\",\\\\\"team-coordination\\\\\",\\\\\"reporting\\\\\",\\\\\"phase-coordination\\\\\",\\\\\"mission-planning\\\\\"]\"}')",
+      "Bash(python3 -c \"import json,sys; a=json.load\\(sys.stdin\\); print\\('✓ เลขา:', json.loads\\(a['skills_json']\\)\\)\")",
+      "Bash(/usr/bin/curl -s -X PATCH http://localhost:9001/api/agents/agent-coder -H 'Content-Type: application/json' -d '{\"skills_json\":\"[\\\\\"code-review\\\\\",\\\\\"debugging\\\\\",\\\\\"architecture\\\\\",\\\\\"unit-testing\\\\\",\\\\\"documentation\\\\\"]\"}')",
+      "Bash(python3 -c \"import json,sys; a=json.load\\(sys.stdin\\); print\\('✓ นักเขียนโค้ด:', json.loads\\(a['skills_json']\\)\\)\")",
+      "Bash(/usr/bin/curl -s -X PATCH http://localhost:9001/api/agents/agent-sysadmin -H 'Content-Type: application/json' -d '{\"skills_json\":\"[\\\\\"server-setup\\\\\",\\\\\"security-audit\\\\\",\\\\\"monitoring\\\\\",\\\\\"ci-cd\\\\\",\\\\\"docker-kubernetes\\\\\"]\"}')",
+      "Bash(python3 -c \"import json,sys; a=json.load\\(sys.stdin\\); print\\('✓ ผู้ดูแลระบบ:', json.loads\\(a['skills_json']\\)\\)\")",
+      "Bash(/usr/bin/curl -s -X PATCH http://localhost:9001/api/agents/agent-graphic -H 'Content-Type: application/json' -d '{\"skills_json\":\"[\\\\\"brand-design\\\\\",\\\\\"layout\\\\\",\\\\\"color-theory\\\\\",\\\\\"typography\\\\\",\\\\\"ui-components\\\\\"]\"}')",
+      "Bash(python3 -c \"import json,sys; a=json.load\\(sys.stdin\\); print\\('✓ กราฟฟิค:', json.loads\\(a['skills_json']\\)\\)\")",
+      "Bash(/usr/bin/curl -s -X PATCH http://localhost:9001/api/agents/agent-stock-analyst -H 'Content-Type: application/json' -d '{\"skills_json\":\"[\\\\\"fundamental-analysis\\\\\",\\\\\"valuation\\\\\",\\\\\"sector-research\\\\\",\\\\\"technical-analysis\\\\\"]\"}')",
+      "Bash(python3 -c \"import json,sys; a=json.load\\(sys.stdin\\); print\\('✓ นักวิเคราะห์หุ้น:', json.loads\\(a['skills_json']\\)\\)\")",
+      "Bash(/usr/bin/curl -s -X PATCH http://localhost:9001/api/agents/agent-strategist -H 'Content-Type: application/json' -d '{\"skills_json\":\"[\\\\\"swot-analysis\\\\\",\\\\\"market-research\\\\\",\\\\\"business-planning\\\\\",\\\\\"competitive-analysis\\\\\",\\\\\"go-to-market\\\\\"]\"}')",
+      "Bash(python3 -c \"import json,sys; a=json.load\\(sys.stdin\\); print\\('✓ นักวางกลยุทธ์:', json.loads\\(a['skills_json']\\)\\)\")",
+      "Bash(/usr/bin/curl -s -X POST http://localhost:9001/api/agents -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(python3 -c \"import json,sys; a=json.load\\(sys.stdin\\); print\\('✓ Created BA:', a['id'], '|', a['name'], '|', a['team']\\)\")",
+      "Bash(python3 -c \"import json,sys; a=json.load\\(sys.stdin\\); print\\('✓ Created QA:', a['id'], '|', a['name'], '|', a['team']\\)\")",
+      "Bash(claude sessions *)",
+      "Read(//Users/Natthakit.s/.claude/skills/**)",
+      "Read(//Users/Natthakit.s/.claude/**)",
+      "Bash(mkdir -p \"/Users/Natthakit.s/pandora_work/Claude Team Gang/.claude/skills/new-page\")",
+      "Bash(mkdir -p \"/Users/Natthakit.s/pandora_work/Claude Team Gang/.claude/skills/add-i18n\")",
+      "Bash(mkdir -p \"/Users/Natthakit.s/pandora_work/Claude Team Gang/.claude/skills/new-output-block\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in d.items\\(\\) if 'mcp' in k.lower\\(\\)}, indent=2\\)\\)\")",
+      "Bash(/Users/Natthakit.s/.local/bin/claude --print --model claude-haiku-4-5-20251001 --no-session-persistence --dangerously-skip-permissions)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.keys\\(\\)\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\([k for k in d.keys\\(\\)]\\)\")",
+      "Bash(python3 -c \"import sys; data=sys.stdin.read\\(\\); import json; [print\\(list\\(d.keys\\(\\)\\)\\) for d in [json.loads\\(data\\)] if isinstance\\(d, dict\\)]\")",
+      "Bash(security find-generic-password *)",
+      "Bash(security find-internet-password *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(python3 *)",
+      "Bash(mkdir -p \"/Users/Natthakit.s/pandora_work/Claude Team Gang/src/app/api/project-templates/[id]\")",
+      "Bash(mkdir -p \"/Users/Natthakit.s/pandora_work/Claude Team Gang/src/app/api/project-templates/[id]/figma-preview\")",
+      "Bash(node -e ' *)",
+      "Bash(sqlite3 ./data/agents.db \"UPDATE missions SET status='pending', output=NULL, error=NULL WHERE id='mission-2b615e50'; SELECT id, status FROM missions WHERE id='mission-2b615e50';\")",
+      "Bash(sqlite3 *)",
+      "Bash(wait)",
+      "Read(//Users/Natthakit.s/pandora_work/projects/project-469e4540/**)",
+      "Read(//Users/Natthakit.s/pandora_work/projects/project-469e4540/src/**)",
+      "Bash(docker compose *)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(grep -v \"^\\\\s*//\\\\|integrationRequirement\\\\|desc = \\\\`\")",
+      "Bash(awk '{print $2, $11, $12}')",
+      "Bash(echo \"fired, pid=$!\")",
+      "Bash(echo \"Integration fired, pid=$!\")",
+      "Bash(echo \"INTEGRATION fired again, pid=$!\")",
+      "Bash(npx prisma *)"
+    ]
+  },
+  "mcpServers": {
+    "figma": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@figma/mcp-server"
+      ],
+      "env": {
+        "FIGMA_ACCESS_TOKEN": ""
+      }
+    }
+  }
+}

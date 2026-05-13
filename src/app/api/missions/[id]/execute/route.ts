@@ -141,18 +141,37 @@ volumes:
   db_data:
 `
 
-  const dockerfile = `FROM node:20-alpine
+  const dockerfile = `FROM node:20-alpine AS base
 WORKDIR /app
 RUN apk add --no-cache openssl
+
+FROM base AS deps
 COPY package*.json ./
-RUN npm install
-RUN npm install --save-dev prisma@5 @prisma/client@5
+RUN npm ci
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-COPY prisma ./prisma
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npx prisma generate
-COPY . .
+RUN npm run build
+
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+USER nextjs
 EXPOSE 3000
-CMD ["npm", "run", "dev"]
+ENV PORT=3000 HOSTNAME=0.0.0.0
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --skip-generate && node server.js"]
 `
 
   const packageJson = `{
@@ -237,12 +256,13 @@ export default config
 `
 
   const nextConfig = `/** @type {import('next').NextConfig} */
-const nextConfig = {}
+const nextConfig = { output: 'standalone' }
 module.exports = nextConfig
 `
 
   const prismaSchema = `generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -430,7 +450,7 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
     if (allWaiting) {
       console.log(`[phase] 🚑 Safety net: no Phase 0 found, firing Phase ${lowestPhase} directly`)
       for (const m of lowestMissions) {
-        db.prepare(`UPDATE missions SET status = 'pending' WHERE id = ?`).run(m.id)
+        db.prepare(`UPDATE missions SET status = 'pending', created_at = datetime('now') WHERE id = ?`).run(m.id)
         fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
           .catch(e => console.error('[phase] safety-net spawn failed', m.id, e.message))
       }
@@ -458,7 +478,8 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
 
     const nextMissions = phases[nextPhase]
     const hasWaiting = nextMissions.some((m: any) =>
-      m.status === 'waiting' || m.status === 'waiting_phase'
+      m.status === 'waiting' || m.status === 'waiting_phase' ||
+      (m.status === 'pending' && !m.started_at)
     )
     if (!hasWaiting) continue
 
@@ -494,7 +515,8 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
     const context = collectPhaseOutputs(db, parentMissionId, nextPhase)
 
     for (const m of nextMissions) {
-      if (m.status !== 'waiting' && m.status !== 'waiting_phase') continue
+      if (m.status !== 'waiting' && m.status !== 'waiting_phase' &&
+          !(m.status === 'pending' && !m.started_at)) continue
 
       // Inject phase context into description
       if (context) {
@@ -505,8 +527,18 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
         }
       }
 
-      db.prepare(`UPDATE missions SET status = 'pending' WHERE id = ?`).run(m.id)
-      fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' }).catch((e) => console.error('[phase] spawn failed for mission', m.id, e.message))
+      db.prepare(`UPDATE missions SET status = 'pending', created_at = datetime('now') WHERE id = ?`).run(m.id)
+      const fireUrl = `${BASE_URL}/api/missions/${m.id}/execute`
+      fetch(fireUrl, { method: 'POST' }).catch((e) => {
+        console.error('[phase] spawn failed for mission', m.id, e.message)
+        // Retry once after 3s — watchdog will catch anything still stuck after 30s
+        setTimeout(() => {
+          const still = db.prepare('SELECT status FROM missions WHERE id = ?').get(m.id) as any
+          if (still?.status === 'pending') {
+            fetch(fireUrl, { method: 'POST' }).catch(() => {})
+          }
+        }, 3000)
+      })
       console.log(`[phase] 🚀 fired ${m.id} (${m.title}) — Phase ${nextPhase}`)
     }
 
@@ -599,6 +631,188 @@ curl -s -X POST http://localhost:${webPort}/api/v1/auth/login \\
   console.log(`[auto-seed] 🌱 Spawned seed mission ${seedId} for project ${project.id}`)
 }
 
+// ── Auto Docker Deploy: run `docker compose up --build`, fix errors, retry ───
+// Spawns a [DOCKER-DEPLOY] mission after all phases complete.
+// The agent actually runs the build, reads errors, fixes Dockerfile/compose, retries.
+function autoDockerDeploy(db: any, parentMissionId: string) {
+  const MAX_ROUNDS = 5
+  const fs = require('fs')
+  const path = require('path')
+
+  const project = db.prepare('SELECT * FROM projects WHERE mission_id = ?').get(parentMissionId) as any
+  if (!project?.work_dir) return
+
+  const composeFile = project.docker_compose_path || path.join(project.work_dir, 'docker-compose.yml')
+  if (!fs.existsSync(composeFile)) return
+
+  // Dedup: don't spawn another if one is already in progress or succeeded
+  const existingDeploy = db.prepare(`
+    SELECT id, status FROM missions
+    WHERE parent_mission_id = ? AND title LIKE '[DOCKER-DEPLOY]%' AND status NOT IN ('failed','cancelled')
+    ORDER BY created_at DESC LIMIT 1
+  `).get(parentMissionId) as any
+  if (existingDeploy) {
+    console.log(`[docker-deploy] skipping — mission ${existingDeploy.id} already ${existingDeploy.status}`)
+    return
+  }
+
+  // Check how many deploy rounds already ran
+  const roundCount = db.prepare(`
+    SELECT COUNT(*) as c FROM missions WHERE parent_mission_id = ? AND title LIKE '[DOCKER-DEPLOY]%'
+  `).get(parentMissionId) as { c: number }
+  if (roundCount.c >= MAX_ROUNDS) {
+    console.warn(`[docker-deploy] ⚠️ Max ${MAX_ROUNDS} rounds reached for ${parentMissionId}`)
+    return
+  }
+
+  // Pick DevOps or Integration agent
+  const agents = db.prepare('SELECT id, name, role FROM agents ORDER BY name').all() as any[]
+  const agent = agents.find((a: any) =>
+    /devops|integration|deploy|infra/i.test(a.role) || /devops|integration|deploy/i.test(a.name)
+  ) || agents.find((a: any) => /coder|fullstack|developer/i.test(a.role)) || agents[0]
+  if (!agent) return
+
+  // Gather used ports for conflict avoidance
+  let usedPortsLine = ''
+  try {
+    const { execSync } = require('child_process')
+    const lsofOut = execSync("lsof -iTCP -sTCP:LISTEN -nP 2>/dev/null | awk '{print $9}' | grep ':' | sed 's/.*://' | sort -un", { encoding: 'utf-8', timeout: 5000 })
+    const listeningPorts = lsofOut.trim().split('\n').map(Number).filter((p: number) => p >= 1024 && p <= 65535)
+    const usedPorts = Array.from(new Set([3000, ...listeningPorts])).filter(p => p >= 3000 && p <= 9000).join(', ')
+    usedPortsLine = `\n⚠️ Ports ที่ถูกใช้แล้ว (ห้ามซ้ำ): [${usedPorts}]`
+  } catch {}
+
+  const round = roundCount.c + 1
+  const deployId = `mission-${require('uuid').v4().slice(0, 8)}`
+
+  const desc = `## [DOCKER-DEPLOY] Deploy โปรเจค — Self-Healing Round ${round}
+
+**Work Directory:** \`${project.work_dir}\`
+**Docker Compose:** \`${composeFile}\`
+${usedPortsLine}
+
+---
+## กฎเหล็ก: คุณต้องแก้ปัญหาด้วยตัวเองและ deploy ให้สำเร็จจริงๆ
+
+**ห้าม** รายงานว่า "พบ error X" แล้วจบ — ต้องแก้ไขไฟล์แล้ว retry จนสำเร็จ
+**ห้าม** report เสร็จโดยไม่มี ---ACCESS-INFO--- block ที่ถูกต้อง
+
+---
+## Loop การทำงาน (วนซ้ำจนสำเร็จ)
+
+### Step 1: Pre-flight Check + Auto-fix
+
+อ่านและตรวจสอบไฟล์เหล่านี้ก่อน build ทุกครั้ง:
+
+**Dockerfile** (\`${project.work_dir}/Dockerfile\`):
+- Base \`node:*-alpine\` → ต้องมี \`RUN apk add --no-cache openssl\`
+- Base \`node:*-slim\`/debian → ไม่ต้อง apk
+- ต้องมี \`output: 'standalone'\` ใน next.config.ts → มี \`server.js\` ใน standalone
+- Runner stage ต้อง copy: \`node_modules/.prisma\`, \`node_modules/@prisma\`, \`node_modules/prisma\`
+- CMD ต้องเป็น: \`node node_modules/prisma/build/index.js db push --skip-generate && node server.js\`
+  (ห้ามใช้ \`npx prisma\` เพราะต้องการ wasm file)
+
+**prisma/schema.prisma**:
+- ต้องมี \`binaryTargets = ["native", "linux-musl-openssl-3.0.x"]\`
+
+ถ้าพบ issue → แก้ไฟล์ทันทีก่อน build
+
+### Step 2: Build & Start
+
+\`\`\`bash
+cd "${project.work_dir}"
+docker compose down --remove-orphans 2>/dev/null || true
+docker compose up -d --build 2>&1
+\`\`\`
+
+### Step 3: ถ้า Build/Start Fail → วิเคราะห์ + แก้ + retry
+
+อ่าน error output ทั้งหมด วิเคราะห์ root cause และแก้ไฟล์ทันที:
+
+| Error | วิธีแก้ |
+|-------|---------|
+| \`openssl not found\` / \`libssl\` | เพิ่ม \`RUN apk add --no-cache openssl\` ใน Dockerfile |
+| \`prisma_schema_build_bg.wasm\` | เพิ่ม binaryTargets + copy \`node_modules/prisma\` ใน Dockerfile |
+| \`ENOENT server.js\` | เพิ่ม \`output: 'standalone'\` ใน next.config.ts แล้ว rebuild |
+| \`address already in use :<PORT>\` | เปลี่ยน port ใน docker-compose.yml ให้ใช้ port ว่าง |
+| \`Module not found\` | ตรวจ package.json → เพิ่ม dep ที่ขาด → rebuild |
+| \`NEXT_PUBLIC_*\` ใช้ service name | แก้เป็น \`http://localhost:<HOST_PORT>\` |
+| build ช้า/timeout | เพิ่ม \`.dockerignore\` ที่ exclude node_modules/.next |
+| \`Cannot find module\` | ตรวจ import paths ว่า case-sensitive ถูกต้อง |
+
+หลังแก้ไฟล์ → กลับไป Step 2 (ทำซ้ำจนสำเร็จ)
+
+### Step 4: ตรวจสอบ containers running
+
+\`\`\`bash
+docker compose -f "${composeFile}" ps
+docker logs $(docker compose -f "${composeFile}" ps -q web 2>/dev/null | head -1) 2>&1 | tail -30
+\`\`\`
+
+ถ้า container exit/unhealthy → อ่าน logs วิเคราะห์ แก้ไข restart
+
+### Step 5: Seed demo accounts
+
+\`\`\`bash
+WEB_CONTAINER=$(docker compose -f "${composeFile}" ps -q web 2>/dev/null | head -1)
+docker exec $WEB_CONTAINER node node_modules/prisma/build/index.js db seed 2>/dev/null || \\
+docker exec $WEB_CONTAINER node dist/seed.js 2>/dev/null || \\
+docker exec $WEB_CONTAINER node scripts/seed.js 2>/dev/null || \\
+docker exec $WEB_CONTAINER node src/scripts/seed.js 2>/dev/null || \\
+echo "No seed script — will insert via SQL"
+\`\`\`
+
+### Step 6: ทดสอบ login จาก host (บังคับ)
+
+หา login endpoint จาก source code:
+\`\`\`bash
+grep -r "auth/signin\|auth/login\|api/login\|api/auth" "${project.work_dir}/src" 2>/dev/null | grep "route\|handler\|endpoint" | head -5
+\`\`\`
+
+ทดสอบ:
+\`\`\`bash
+curl -s -c /tmp/cookies.txt -X POST http://localhost:<web_port>/api/auth/... \\
+  -H "Content-Type: application/json" \\
+  -d '{"email":"admin@demo.com","password":"demo1234"}'
+\`\`\`
+
+ถ้า error → แก้ปัญหา (wrong endpoint / missing seed / wrong password) แล้วลองใหม่
+
+### Step 7: Output บังคับสุดท้าย
+
+เมื่อทุกอย่างสำเร็จแล้วเท่านั้น ให้ output:
+
+\`\`\`
+---ACCESS-INFO---
+{
+  "web_port": <HOST port จาก docker-compose.yml>,
+  "adminer_port": <HOST port ของ cloudbeaver>,
+  "db_user": "<POSTGRES_USER value>",
+  "db_password": "<POSTGRES_PASSWORD value>",
+  "demo_accounts": [
+    {"role": "Admin", "email": "admin@demo.com", "password": "demo1234"},
+    {"role": "User", "email": "user@demo.com", "password": "demo1234"}
+  ]
+}
+---END---
+\`\`\`
+
+🚫 ห้ามเขียน ---ACCESS-INFO--- ถ้า:
+- containers ยังไม่รัน
+- login ยังไม่ผ่าน
+- ไม่รู้ actual port จาก docker-compose.yml`
+
+  db.prepare(`
+    INSERT INTO missions (id, title, description, agent_id, priority, status, parent_mission_id, phase)
+    VALUES (?, ?, ?, ?, 'high', 'pending', ?, NULL)
+  `).run(deployId, `[DOCKER-DEPLOY] Round ${round} — ${project.name?.slice(0, 60)}`, desc, agent.id, parentMissionId)
+
+  fetch(`${BASE_URL}/api/missions/${deployId}/execute`, { method: 'POST' })
+    .catch((e) => console.error('[docker-deploy] spawn failed:', e.message))
+
+  console.log(`[docker-deploy] 🐳 Spawned deploy mission ${deployId} (round ${round}) for project ${project.id}`)
+}
+
 // ── Auto-loop: keep fixing until 100% complete ───────────────────────────────
 // Runs after all phases complete. If failed missions remain, spawns a new
 // orchestration round (via secretary) summarising what broke. Max 10 loops.
@@ -623,6 +837,7 @@ function autoLoopProjectFix(db: any, parentMissionId: string) {
   if (failed.length === 0) {
     console.log(`[auto-loop] ✅ Project ${parentMissionId} — all missions done (100%)`)
     autoSeedDemoAccounts(db, parentMissionId)
+    autoDockerDeploy(db, parentMissionId)
     return
   }
 
@@ -898,6 +1113,9 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
     dockerComposePath = existingProject.docker_compose_path || null
   }
 
+  // Track phases actually assigned in DB (not raw task.phase which may be undefined)
+  const assignedPhases: number[] = []
+
   for (const task of tasks) {
     const agent = matchAgent(agents, task.agent_name)
     if (!agent) {
@@ -954,7 +1172,7 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
     }
 
     const integrationRequirement = isIntegration
-      ? `\n\n---\n## 🔌 กฎเหล็ก Integration (ทำครบทุกข้อก่อน report เสร็จ)\n\n### 1. Docker Services (บังคับ 3 services)\n- **web** — frontend หรือ fullstack app (build จาก Dockerfile, expose port ออกสู่ host)\n- **cloudbeaver** — DB admin UI (image: \`dbeaver/cloudbeaver:latest\`, port 8978 หรือว่าง)\n- **postgres** — database (image: \`postgres:16-alpine\`, พร้อม POSTGRES_USER/PASSWORD/DB)\n\n### 2. ⚠️ กฎ Dockerfile NEXT_PUBLIC_* (สำคัญมาก)\nถ้า frontend เป็น Next.js (หรือ framework อื่นที่ bake env ตอน build):\n- **ห้ามใช้ Docker service name** ใน \`NEXT_PUBLIC_API_URL\` หรือ \`NEXT_PUBLIC_API_BASE_URL\`\n- เพราะ service name เช่น \`http://backend:8080\` ใช้ได้เฉพาะ container-to-container เท่านั้น\n- browser บน host ไม่รู้จัก hostname \`backend\` → login/API ทั้งหมดพัง\n- **ต้องใช้ \`http://localhost:<HOST_PORT>\`** เสมอ เช่น:\n\`\`\`dockerfile\nENV NEXT_PUBLIC_API_URL=http://localhost:${suggestedWebPort}\nENV NEXT_PUBLIC_API_BASE_URL=http://localhost:${suggestedWebPort}\n\`\`\`\n- ถ้ามี \`.env.local\` ต้องตรวจสอบว่า \`.dockerignore\` ไม่ได้ exclude มัน หรือ set ENV ใน Dockerfile แทน\n- **ตรวจสอบ**: หลัง build ต้อง grep หา \`backend:\` หรือ service name ใน \`.next/static/chunks/*.js\` — ถ้าเจอ → แก้ Dockerfile แล้ว build ใหม่\n\n### 3. Seed Demo Accounts (บังคับ)\nหลัง \`docker compose up\` สำเร็จ:\n1. รัน seed หรือ insert users ลง DB:\n   - \`docker exec <web_container> npx prisma db seed\` หรือ\n   - \`docker exec <web_container> node seed.js\` หรือ\n   - SQL: \`docker exec <db_container> psql -U <user> -d <db> -c "INSERT INTO users ..."\`\n2. ยืนยัน login จาก **host** (ไม่ใช่จากใน container):\n   \`curl -s -X POST http://localhost:<web_port>/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"admin@demo.com","password":"demo1234"}' | grep -o 'token\\|accessToken\\|error'\`\n3. ต้องได้ token กลับมา — ถ้า error → แก้ก่อน report\n\n### 4. Output บังคับ (ก่อน Release Notes เสมอ)\n\`\`\`\n---ACCESS-INFO---\n{\n  "web_port": <HOST port จาก docker-compose>,\n  "adminer_port": <HOST port ของ cloudbeaver>,\n  "db_user": "<POSTGRES_USER>",\n  "db_password": "<POSTGRES_PASSWORD>",\n  "demo_accounts": [\n    {"role": "Admin", "email": "admin@demo.com", "password": "demo1234"},\n    {"role": "User", "email": "user@demo.com", "password": "demo1234"}\n  ]\n}\n---END---\n\`\`\`\n\n🚫 ห้าม:\n- ใช้ port 3000 (ระบบหลักใช้อยู่)\n- ใช้ service name ใน NEXT_PUBLIC env ที่ bake ตอน build${usedPortsInfo}\n- Report เสร็จโดยยังไม่ได้ทดสอบ login จริง\n- มีฟิลด์ใดใน ---ACCESS-INFO--- เป็น null หรือ missing\n---\n`
+      ? `\n\n---\n## 🔌 กฎเหล็ก Integration (ทำครบทุกข้อก่อน report เสร็จ)\n\n### 0. ตรวจสอบ Dockerfile ก่อน build (สำคัญมาก)\nก่อน docker compose build ให้ตรวจสอบและแก้ไขทุกข้อนี้:\n- **next.config.ts/js** ต้องมี \`output: 'standalone'\` — ถ้าไม่มีให้เพิ่ม\n- **prisma/schema.prisma** ต้องมี \`binaryTargets = ["native", "linux-musl-openssl-3.0.x"]\` — ถ้าไม่มีให้เพิ่ม\n- **Dockerfile** ถ้า base image เป็น \`node:20-alpine\` ต้องมี \`RUN apk add --no-cache openssl\`\n- **Dockerfile runner stage** ต้อง copy \`node_modules/prisma\` และ \`node_modules/.prisma\` จาก builder\n- **startup command** ใช้ \`node node_modules/prisma/build/index.js db push --skip-generate && node server.js\` (ไม่ใช้ npx prisma)\n- **[Next.js บังคับ]** ถ้ามี \`src/app/page.tsx\` หรือ \`app/page.tsx\` ที่เป็น boilerplate (มีข้อความ "Get started by editing" หรือ Next.js logo) → ลบทิ้งทันที เพราะมันจะ override route group pages เช่น \`(storefront)/page.tsx\` ทำให้ homepage แสดง default template แทน\n- **[Next.js บังคับ]** รัน \`npx prisma generate\` ทุกครั้งหลังแก้ schema เพื่อ sync TypeScript types ก่อน build\n\n### 1. Docker Services (บังคับ 3 services)\n- **web** — frontend หรือ fullstack app (build จาก Dockerfile, expose port ออกสู่ host)\n- **cloudbeaver** — DB admin UI (image: \`dbeaver/cloudbeaver:latest\`, port 8978 หรือว่าง)\n- **postgres** — database (image: \`postgres:16-alpine\`, พร้อม POSTGRES_USER/PASSWORD/DB)\n\n### 2. ⚠️ กฎ Dockerfile NEXT_PUBLIC_* (สำคัญมาก)\nถ้า frontend เป็น Next.js (หรือ framework อื่นที่ bake env ตอน build):\n- **ห้ามใช้ Docker service name** ใน \`NEXT_PUBLIC_API_URL\` หรือ \`NEXT_PUBLIC_API_BASE_URL\`\n- เพราะ service name เช่น \`http://backend:8080\` ใช้ได้เฉพาะ container-to-container เท่านั้น\n- browser บน host ไม่รู้จัก hostname \`backend\` → login/API ทั้งหมดพัง\n- **ต้องใช้ \`http://localhost:<HOST_PORT>\`** เสมอ เช่น:\n\`\`\`dockerfile\nENV NEXT_PUBLIC_API_URL=http://localhost:${suggestedWebPort}\nENV NEXT_PUBLIC_API_BASE_URL=http://localhost:${suggestedWebPort}\n\`\`\`\n\n### 3. Build + Deploy (ต้องทำจริงก่อน report)\n\`\`\`bash\ncd <work_dir>\ndocker compose down --remove-orphans 2>/dev/null || true\ndocker compose up -d --build 2>&1\n\`\`\`\nถ้า build fail → อ่าน error แก้ไฟล์แล้ว retry จนสำเร็จ\n\n### 4. Seed Demo Accounts (บังคับ)\nหลัง \`docker compose up\` สำเร็จ:\n1. รัน seed หรือ insert users ลง DB\n2. ยืนยัน login จาก **host** (ไม่ใช่จากใน container):\n   \`curl -s -X POST http://localhost:<web_port>/api/auth/... -H "Content-Type: application/json" -d '{"email":"admin@demo.com","password":"demo1234"}'\`\n3. ต้องได้ token/session กลับมา — ถ้า error → แก้ก่อน report\n\n### 5. Output บังคับ (ก่อน Release Notes เสมอ)\n\`\`\`\n---ACCESS-INFO---\n{\n  "web_port": <HOST port จาก docker-compose>,\n  "adminer_port": <HOST port ของ cloudbeaver>,\n  "db_user": "<POSTGRES_USER>",\n  "db_password": "<POSTGRES_PASSWORD>",\n  "demo_accounts": [\n    {"role": "Admin", "email": "admin@demo.com", "password": "demo1234"},\n    {"role": "User", "email": "user@demo.com", "password": "demo1234"}\n  ]\n}\n---END---\n\`\`\`\n\n🚫 ห้าม:\n- ใช้ port 3000 (ระบบหลักใช้อยู่)\n- ใช้ service name ใน NEXT_PUBLIC env ที่ bake ตอน build${usedPortsInfo}\n- Report เสร็จโดยยังไม่ได้ทดสอบ login จริง\n- มีฟิลด์ใดใน ---ACCESS-INFO--- เป็น null หรือ missing\n---\n`
       : ''
 
     const fullDescription = workDirCtx + task.description + integrationRequirement
@@ -986,20 +1204,21 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(subId, task.title, fullDescription, agent.id, task.priority || priority, initialStatus, parentMissionId, phase)
 
+    assignedPhases.push(phase)
+
     // Only fire Phase 0 tasks immediately
     if (phase === 0) {
       fetch(`${BASE_URL}/api/missions/${subId}/execute`, { method: 'POST' }).catch((e) => console.error('[tasks] spawn failed for sub-mission', subId, e.message))
     }
   }
 
-  // Edge case: if no phase 0 tasks exist, fire the lowest phase directly
-  const allPhases = tasks.map((t: any) => t.phase ?? 0)
-  const hasPhase0 = allPhases.some((p: number) => p === 0)
-  if (!hasPhase0) {
-    const minPhase = Math.min(...allPhases)
-    // No race condition: all DB inserts above are synchronous (better-sqlite3).
-    // The missions are already in DB by the time we query here.
-    // Use setImmediate to yield event loop once, then fire — safe with sync SQLite.
+  // Fire the lowest phase directly if no phase 0 was assigned.
+  // Use assignedPhases (actual DB phases) — NOT task.phase which may be undefined.
+  const hasPhase0 = assignedPhases.some(p => p === 0)
+  if (!hasPhase0 && assignedPhases.length > 0) {
+    const minPhase = Math.min(...assignedPhases)
+    // All DB inserts above are synchronous (better-sqlite3) — missions already exist.
+    // setImmediate yields one event-loop tick so any pending I/O completes first.
     setImmediate(() => {
       try {
         const lowestMissions = db.prepare(
@@ -1020,7 +1239,7 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
     })
   }
 
-  console.log(`[secretary] spawned ${tasks.length} tasks — Phases: ${Array.from(new Set(allPhases)).sort().join(',')}${hasPhase0 ? ' — Phase 0 fired immediately' : ` — No Phase 0, will fire Phase ${Math.min(...allPhases)} directly`}`)
+  console.log(`[secretary] spawned ${assignedPhases.length} tasks — Phases: ${Array.from(new Set(assignedPhases)).sort().join(',')}${hasPhase0 ? ' — Phase 0 fired immediately' : ` — No Phase 0, will fire Phase ${Math.min(...assignedPhases)} directly`}`)
 }
 
 // ── N2N: Agent-to-Agent direct delegation ────────────────────────────────────
@@ -1175,7 +1394,7 @@ function handlePhaseGateBlock(db: any, missionId: string, mission: any, output: 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 9001}`
 
 function getClaudeCLI(db: any): string {
   try {
@@ -1276,78 +1495,119 @@ function getOllamaBaseUrl(db: any): string {
   return 'http://localhost:11434'
 }
 const MISSION_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
-const WATCHDOG_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes — don't scan on every request
+const WATCHDOG_INTERVAL_MS = 30 * 1000 // 30 seconds — catch stuck phases quickly
 
 // Module-level throttle timestamp (survives across requests in same Node.js process)
 let _lastWatchdogRun = 0
 
+// Background heartbeat — runs watchdog every 30s regardless of HTTP traffic.
+// Versioned key: bump WATCHDOG_VERSION to force re-registration after hot-reload.
+const WATCHDOG_VERSION = 'v3'
+const WATCHDOG_KEY = `__phaseWatchdog_${WATCHDOG_VERSION}`
+if (!(globalThis as any)[WATCHDOG_KEY]) {
+  // Clear any old timer stored by previous version
+  const oldTimer = (globalThis as any).__phaseWatchdogTimer
+  if (oldTimer) clearInterval(oldTimer)
+  ;(globalThis as any)[WATCHDOG_KEY] = true
+  const timer = setInterval(() => {
+    try {
+      const db = getDb()
+      resetStaleMissions(db)
+    } catch (e) {
+      console.error('[watchdog-heartbeat] error:', e)
+    }
+  }, WATCHDOG_INTERVAL_MS)
+  ;(globalThis as any).__phaseWatchdogTimer = timer
+  console.log(`[watchdog-heartbeat] ${WATCHDOG_VERSION} started — scanning every 30s`)
+}
+
 // ── Watchdog: reset missions stuck in 'running' for too long ─────────────────
 function resetStaleMissions(db: any) {
-  try {
-    // 1. Kill running missions that have been stuck > 30 min
-    const stale = db.prepare(`
-      UPDATE missions SET status = 'failed', error = 'Mission timed out (process lost after restart)'
-      WHERE status = 'running'
-        AND datetime(created_at) < datetime('now', '-30 minutes')
-    `).run()
-    if (stale.changes > 0) {
-      console.log(`[watchdog] ♻️ Reset ${stale.changes} stale mission(s)`)
-      db.prepare(`UPDATE agents SET status = 'idle' WHERE status = 'working'`).run()
-    }
-  } catch (e) { console.error('[watchdog] stale reset error:', e) }
+  const BASE_URL_WD = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 9001}`
 
   try {
-    // 2b. Rescue sub-missions stuck in 'pending' > 30 min (execute fetch failed on spawn)
-    // Only targets child missions — top-level pending missions may be waiting for manual trigger
-    const stalePending = db.prepare(`
-      UPDATE missions SET status = 'failed', error = 'Mission stuck in pending (execute never fired)'
+    // 1. Rescue running missions stuck > 30 min — reset and retry instead of failing
+    const staleRunning = db.prepare(`
+      SELECT id FROM missions
+      WHERE status = 'running'
+        AND started_at IS NOT NULL
+        AND datetime(started_at) < datetime('now', '-30 minutes')
+    `).all() as { id: string }[]
+    if (staleRunning.length > 0) {
+      for (const m of staleRunning) {
+        db.prepare(`UPDATE missions SET status = 'pending', started_at = NULL, created_at = datetime('now') WHERE id = ?`).run(m.id)
+        fetch(`${BASE_URL_WD}/api/missions/${m.id}/execute`, { method: 'POST' }).catch(() => {})
+      }
+      db.prepare(`UPDATE agents SET status = 'idle' WHERE status = 'working'`).run()
+      console.log(`[watchdog] ♻️ Rescued ${staleRunning.length} stale running mission(s) — retrying`)
+    }
+  } catch (e) { console.error('[watchdog] stale running rescue error:', e) }
+
+  try {
+    // 2. Rescue pending sub-missions whose execute fetch was never received (> 3 min no start)
+    //    Also covers phase=null dynamic spawns (DOCKER-DEPLOY, SEED, etc.)
+    //    Skip missions still waiting for a previous phase to complete
+    const stuckPending = db.prepare(`
+      SELECT id FROM missions
       WHERE status = 'pending'
         AND parent_mission_id IS NOT NULL
-        AND datetime(created_at) < datetime('now', '-30 minutes')
-    `).run()
-    if (stalePending.changes > 0) {
-      console.log(`[watchdog] 🗑️ Reset ${stalePending.changes} stuck-pending sub-mission(s)`)
+        AND started_at IS NULL
+        AND datetime(created_at) < datetime('now', '-3 minutes')
+        AND NOT (
+          phase > 0 AND EXISTS (
+            SELECT 1 FROM missions prev
+            WHERE prev.parent_mission_id = missions.parent_mission_id
+              AND prev.phase < missions.phase
+              AND prev.status NOT IN ('done','failed','cancelled')
+          )
+        )
+    `).all() as { id: string }[]
+    if (stuckPending.length > 0) {
+      for (const m of stuckPending) {
+        db.prepare(`UPDATE missions SET created_at = datetime('now') WHERE id = ?`).run(m.id)
+        fetch(`${BASE_URL_WD}/api/missions/${m.id}/execute`, { method: 'POST' }).catch(() => {})
+      }
+      console.log(`[watchdog] 🔁 Re-fired ${stuckPending.length} stuck-pending sub-mission(s)`)
     }
-  } catch (e) { console.error('[watchdog] pending reset error:', e) }
+  } catch (e) { console.error('[watchdog] pending rescue error:', e) }
 
   try {
-    // 2. Phase watchdog: find waiting_phase missions whose entire previous phase is done
-    //    These are missions that were supposed to be triggered but the fire-and-forget failed
+    // 2. Phase watchdog: find missions whose previous phase is done but they weren't fired
+    //    Covers BOTH waiting_phase (never transitioned) AND pending (transitioned but fetch failed)
+    const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 9001}`
     const orphaned = db.prepare(`
-      SELECT m.id, m.title, m.phase, m.parent_mission_id
+      SELECT m.id, m.title, m.phase, m.parent_mission_id, m.status
       FROM missions m
-      WHERE m.status IN ('waiting_phase', 'waiting')
+      WHERE m.status IN ('waiting_phase', 'waiting', 'pending')
         AND m.parent_mission_id IS NOT NULL
         AND m.phase > 0
+        AND m.started_at IS NULL
         AND NOT EXISTS (
-          -- any sibling in the PREVIOUS phase that is NOT done/failed
           SELECT 1 FROM missions prev
           WHERE prev.parent_mission_id = m.parent_mission_id
-            AND prev.phase = m.phase - 1
-            AND prev.status NOT IN ('done', 'failed')
+            AND prev.phase < m.phase
+            AND prev.status NOT IN ('done', 'failed', 'cancelled')
         )
         AND EXISTS (
-          -- there IS at least one sibling in the previous phase (phase actually ran)
           SELECT 1 FROM missions prev
           WHERE prev.parent_mission_id = m.parent_mission_id
-            AND prev.phase = m.phase - 1
+            AND prev.phase < m.phase
         )
-    `).all() as { id: string; title: string; phase: number; parent_mission_id: string }[]
+    `).all() as { id: string; title: string; phase: number; parent_mission_id: string; status: string }[]
 
     for (const m of orphaned) {
-      console.log(`[watchdog] 🔄 Phase orphan detected: ${m.id} "${m.title.slice(0, 50)}" (phase ${m.phase}) — re-triggering`)
-      db.prepare(`UPDATE missions SET status = 'pending' WHERE id = ?`).run(m.id)
-      const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+      console.log(`[watchdog] 🔄 Phase orphan (${m.status}): "${m.title.slice(0, 50)}" phase ${m.phase} — firing`)
+      db.prepare(`UPDATE missions SET status = 'pending', created_at = datetime('now') WHERE id = ?`).run(m.id)
       fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
         .catch((e) => console.error(`[watchdog] re-trigger failed for ${m.id}:`, e.message))
     }
     if (orphaned.length > 0) {
-      console.log(`[watchdog] 🔄 Re-triggered ${orphaned.length} orphaned phase mission(s)`)
+      console.log(`[watchdog] 🔄 Fired ${orphaned.length} orphaned phase mission(s)`)
     }
   } catch (e) { console.error('[watchdog] phase orphan check error:', e) }
 }
 
-export async function POST(_: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: { id: string } }) {
   const db = getDb()
 
   // Watchdog: throttled — runs at most once every 5 minutes, not on every request
@@ -1355,6 +1615,14 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
   if (now - _lastWatchdogRun >= WATCHDOG_INTERVAL_MS) {
     _lastWatchdogRun = now
     resetStaleMissions(db)
+  }
+
+  // x-watchdog-autoloop: called by GET /api/missions watchdog to trigger auto-fix for stuck projects
+  if (req.headers.get('x-watchdog-autoloop') === '1') {
+    try { autoLoopProjectFix(db, params.id) } catch {}
+    return new Response(JSON.stringify({ ok: true, action: 'autoloop' }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   const mission = db.prepare(`
@@ -1366,7 +1634,27 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
              WHERE p.mission_id = m.parent_mission_id
                AND p.work_dir IS NOT NULL AND p.work_dir != ''
              LIMIT 1
-           ) as project_work_dir
+           ) as project_work_dir,
+           (
+             SELECT pt.figma_design_context FROM projects p
+             JOIN project_templates pt ON pt.id = p.template_id
+             WHERE p.mission_id = m.parent_mission_id
+               AND pt.figma_design_context IS NOT NULL AND pt.figma_design_context != ''
+             LIMIT 1
+           ) as template_figma_context,
+           (
+             SELECT pt.figma_url FROM projects p
+             JOIN project_templates pt ON pt.id = p.template_id
+             WHERE p.mission_id = m.parent_mission_id
+               AND pt.figma_url IS NOT NULL AND pt.figma_url != ''
+             LIMIT 1
+           ) as template_figma_url,
+           (
+             SELECT pt.name FROM projects p
+             JOIN project_templates pt ON pt.id = p.template_id
+             WHERE p.mission_id = m.parent_mission_id
+             LIMIT 1
+           ) as template_name
     FROM missions m JOIN agents a ON m.agent_id = a.id WHERE m.id = ?
   `).get(params.id) as Record<string, string> | undefined
 
@@ -1398,7 +1686,14 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
     ? `\n\n## 📁 Project Working Directory\nคุณกำลังทำงานอยู่ใน: \`${workDir}\`\nไฟล์ทั้งหมดในโปรเจคนี้อยู่ที่ path นี้ — ใช้ tools อ่าน/เขียนไฟล์ที่ path นี้ได้เลย`
     : ''
 
-  const systemPrompt = `${mission.agent_system_prompt}${memoryContext}${workDirContext}
+  // Inject template design system if this mission belongs to a project that uses a template with Figma context
+  const figmaContext = mission.template_figma_context
+    ? `\n\n## 🎨 Design System จาก Template: ${mission.template_name || 'Project Template'}\n` +
+      (mission.template_figma_url ? `Figma URL: ${mission.template_figma_url}\n\n` : '') +
+      `**ต้องทำ UI/Design ตาม design system นี้ทุกครั้ง — ห้ามใช้ค่าสีหรือ font อื่น:**\n${mission.template_figma_context}`
+    : ''
+
+  const systemPrompt = `${mission.agent_system_prompt}${memoryContext}${workDirContext}${figmaContext}
 
 ## บุคลิก: ${mission.agent_personality}
 ## วันที่ปัจจุบัน: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -1521,8 +1816,14 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
           '--dangerously-skip-permissions',
           '--append-system-prompt', systemPrompt,
         ], {
-          env: { ...process.env, HOME: process.env.HOME || '/tmp' },
-          cwd: workDir || '/tmp',
+          env: {
+            ...process.env,
+            HOME: process.env.HOME || require('os').homedir(),
+            // Strip Claude Code session key — CLI must use its own OAuth token
+            ANTHROPIC_API_KEY: undefined,
+            CLAUDE_CODE_SSE_PORT: undefined,
+          } as NodeJS.ProcessEnv,
+          cwd: workDir || require('os').homedir(),
         })
 
         child.stdin.write(userPrompt)
@@ -1748,9 +2049,9 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
         )
 
         // ── Auto-save integration output to project ─────────────────────────────
-        // If this is a phase-4 integration mission, parse and save port/credential
-        // info automatically so the Projects page shows WEB/DB buttons immediately.
-        if (Number(mission.phase) === 4 || String(mission.title).toLowerCase().includes('[integration]')) {
+        // If this is a phase-4 integration mission OR a docker-deploy mission,
+        // parse and save port/credential info automatically.
+        if (Number(mission.phase) === 4 || String(mission.title).toLowerCase().includes('[integration]') || String(mission.title).toLowerCase().includes('[docker-deploy]')) {
           try {
             const integrationParentId = mission.parent_mission_id  // distinct name — avoids shadow
             if (integrationParentId) {
@@ -1859,6 +2160,13 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
                 if (!finalProject?.demo_accounts_json) {
                   autoSeedDemoAccounts(db, integrationParentId)
                 }
+
+                // [DOCKER-DEPLOY] done but no ACCESS-INFO → deploy didn't actually succeed → retry
+                const isDockerDeploy = String(mission.title).toLowerCase().includes('[docker-deploy]')
+                if (isDockerDeploy && !accessBlockMatch) {
+                  console.warn(`[docker-deploy] ⚠️ Mission ${params.id} completed but no ---ACCESS-INFO--- found — retrying deploy`)
+                  setTimeout(() => autoDockerDeploy(db, integrationParentId), 2000)
+                }
               }
             }
           } catch (e) { console.error('[integration] Failed to save project info:', e) }
@@ -1942,36 +2250,89 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
             INSERT INTO messages (id, from_agent, mission_id, type, content)
             VALUES (?, ?, ?, 'result', ?)
           `).run(msgId, mission.agent_id, params.id, `เสร็จสิ้นภารกิจ: ${mission.title}`)
+
+          // [DOCKER-DEPLOY] streaming-error path: check if deploy actually succeeded
+          if (String((mission as any).title || '').toLowerCase().includes('[docker-deploy]')) {
+            const parentId = (mission as any).parent_mission_id
+            if (parentId && !fullOutput.includes('---ACCESS-INFO---')) {
+              console.warn(`[docker-deploy] ⚠️ Streaming error path — no ACCESS-INFO, retry`)
+              setTimeout(() => autoDockerDeploy(db, parentId), 3000)
+            }
+          }
         } else {
-          // No output — real failure, escalate
-          db.prepare("UPDATE missions SET status = 'failed', error = ? WHERE id = ?").run(errMsg, params.id)
+          // No output — real failure
           db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
 
-          // Auto-notify failure
-          const failNotifyMsg = [
-            `❌ Mission failed!`,
-            ``,
-            `⚠️ Error:`,
-            errMsg.slice(0, 500),
-            ``,
-            `💡 กด RETRY ใน dashboard เพื่อลองใหม่`,
-          ].join('\n')
-          autoNotify('failed', mission.title, failNotifyMsg, mission.agent_name, mission.agent_id)
+          const retryCount = (mission as any).retry_count || 0
+          const MAX_SELF_RETRY = 2
 
-          const escalationLevel = (mission as any).escalation_level || 0
-          if (escalationLevel < 2) {
-            fetch(`${BASE_URL}/api/escalate`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ missionId: params.id }),
-            }).catch((e) => console.error('[execute] escalate call failed for mission', params.id, e.message))
-          }
+          // ── Self-Retry: agent รู้จักแก้ตัวเองก่อน escalate ──────────────────
+          if (retryCount < MAX_SELF_RETRY) {
+            const attempt = retryCount + 1
+            const errorContext = [
+              ``,
+              `---`,
+              `⚠️ **ครั้งที่ ${attempt}/${MAX_SELF_RETRY + 1} — ความพยายามก่อนหน้าล้มเหลว**`,
+              `Error: ${errMsg.slice(0, 600)}`,
+              ``,
+              `กรุณาวิเคราะห์ error ข้างต้น และ:`,
+              `1. ระบุสาเหตุที่แท้จริง`,
+              `2. ปรับ approach ใหม่ที่แตกต่างออกไป`,
+              `3. ถ้าขาด context หรือ dependency → ระบุใน output และทำสิ่งที่ทำได้ก่อน`,
+              `---`,
+            ].join('\n')
 
-          // Still advance phase even if this mission failed — other missions in next phase
-          // should not be permanently blocked by one failed mission
-          const failedParentId = (mission as any).parent_mission_id
-          if (failedParentId) {
-            try { advanceProjectPhase(db, failedParentId) } catch {}
+            db.prepare(`
+              UPDATE missions
+              SET status = 'pending',
+                  retry_count = ?,
+                  error = NULL,
+                  description = description || ?
+              WHERE id = ?
+            `).run(attempt, errorContext, params.id)
+
+            console.log(`[self-retry] ♻️ Mission "${(mission.title as string).slice(0, 60)}" — auto-retry ${attempt}/${MAX_SELF_RETRY} (${params.id})`)
+
+            // Re-execute after short delay
+            setTimeout(() => {
+              fetch(`${BASE_URL}/api/missions/${params.id}/execute`, { method: 'POST' })
+                .catch((e) => console.error('[self-retry] re-execute failed:', e.message))
+            }, 2000)
+
+          } else {
+            // Exhausted self-retries → mark failed and escalate
+            db.prepare("UPDATE missions SET status = 'failed', error = ? WHERE id = ?").run(errMsg, params.id)
+
+            const failNotifyMsg = [
+              `❌ Mission failed (${MAX_SELF_RETRY} self-retries exhausted)`,
+              ``,
+              `⚠️ Error:`,
+              errMsg.slice(0, 500),
+            ].join('\n')
+            autoNotify('failed', mission.title, failNotifyMsg, mission.agent_name, mission.agent_id)
+
+            const escalationLevel = (mission as any).escalation_level || 0
+            if (escalationLevel < 2) {
+              fetch(`${BASE_URL}/api/escalate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ missionId: params.id }),
+              }).catch((e) => console.error('[execute] escalate call failed for mission', params.id, e.message))
+            }
+
+            // Advance phase / trigger auto-loop fix
+            const failedParentId = (mission as any).parent_mission_id
+            if (failedParentId) {
+              try { advanceProjectPhase(db, failedParentId) } catch {}
+              // Also try autoLoopProjectFix immediately — don't wait for all phases
+              try { autoLoopProjectFix(db, failedParentId) } catch {}
+
+              // [DOCKER-DEPLOY] failed → auto-retry next round
+              if (String((mission as any).title || '').toLowerCase().includes('[docker-deploy]')) {
+                console.warn(`[docker-deploy] ❌ Deploy mission failed — scheduling retry round`)
+                setTimeout(() => autoDockerDeploy(db, failedParentId), 3000)
+              }
+            }
           }
         }
 

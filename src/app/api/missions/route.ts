@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { v4 as uuidv4 } from 'uuid'
 
-// Throttle: run watchdog at most once every 2 minutes across all GET /api/missions calls
+// Throttle: run watchdog at most once every 30 seconds across all GET /api/missions calls
 let _lastWatchdog = 0
 
 export async function GET(request: Request) {
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
     // Inline watchdog — runs every 2 min, resets missions stuck running > 10 min
     const now = Date.now()
-    if (now - _lastWatchdog > 2 * 60 * 1000) {
+    if (now - _lastWatchdog > 30 * 1000) {
       _lastWatchdog = now
 
       // 1. Reset missions stuck in running > 10 min
@@ -34,37 +34,72 @@ export async function GET(request: Request) {
         }
       } catch {}
 
-      // 2. Phase orphan rescue — find waiting_phase/waiting missions whose entire previous phase is done/failed
+      // 2. Phase orphan rescue — find waiting_phase/waiting/pending(not started) missions whose entire previous phase is done/failed
       //    Happens when server restart kills running missions and advanceProjectPhase never fires
       try {
         const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
         const orphaned = db.prepare(`
           SELECT m.id, m.title, m.phase, m.parent_mission_id
           FROM missions m
-          WHERE m.status IN ('waiting_phase', 'waiting')
+          WHERE (m.status IN ('waiting_phase', 'waiting')
+                 OR (m.status = 'pending' AND m.started_at IS NULL))
             AND m.parent_mission_id IS NOT NULL
             AND m.phase > 0
+            AND m.started_at IS NULL
             AND NOT EXISTS (
               SELECT 1 FROM missions prev
               WHERE prev.parent_mission_id = m.parent_mission_id
-                AND prev.phase = m.phase - 1
-                AND prev.status NOT IN ('done', 'failed')
+                AND prev.phase < m.phase
+                AND prev.status NOT IN ('done', 'failed', 'cancelled')
             )
             AND EXISTS (
               SELECT 1 FROM missions prev
               WHERE prev.parent_mission_id = m.parent_mission_id
-                AND prev.phase = m.phase - 1
+                AND prev.phase < m.phase
             )
         `).all() as { id: string; title: string; phase: number; parent_mission_id: string }[]
 
         for (const m of orphaned) {
           console.log(`[watchdog] 🔄 Phase orphan: "${m.title.slice(0, 50)}" (phase ${m.phase}) — re-triggering`)
-          db.prepare(`UPDATE missions SET status = 'pending' WHERE id = ?`).run(m.id)
+          db.prepare(`UPDATE missions SET status = 'pending', created_at = datetime('now') WHERE id = ?`).run(m.id)
           fetch(`${baseUrl}/api/missions/${m.id}/execute`, { method: 'POST' })
             .catch((e: Error) => console.error(`[watchdog] re-trigger failed for ${m.id}:`, e.message))
         }
         if (orphaned.length > 0) {
           console.log(`[watchdog] 🔄 Rescued ${orphaned.length} orphaned phase mission(s)`)
+        }
+      } catch {}
+
+      // 3. Auto-loop fix watchdog — projects with all sub-missions done/failed but no AUTO-FIX running
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+        // Find parent missions whose sub-missions are ALL done/failed, have at least 1 failed,
+        // and no AUTO-FIX or RETRY mission is currently pending/running
+        const stuckProjects = db.prepare(`
+          SELECT DISTINCT m.parent_mission_id as pid
+          FROM missions m
+          WHERE m.parent_mission_id IS NOT NULL
+            AND m.title NOT LIKE '[AUTO-FIX]%'
+            AND m.title NOT LIKE '[RETRY]%'
+            AND m.title NOT LIKE '[ESCALATION]%'
+            AND m.title NOT LIKE '[N2N%'
+            AND m.status NOT IN ('cancelled')
+          GROUP BY m.parent_mission_id
+          HAVING
+            SUM(CASE WHEN m.status NOT IN ('done','failed','cancelled') THEN 1 ELSE 0 END) = 0
+            AND SUM(CASE WHEN m.status = 'failed' THEN 1 ELSE 0 END) > 0
+            AND NOT EXISTS (
+              SELECT 1 FROM missions fix
+              WHERE fix.parent_mission_id = m.parent_mission_id
+                AND (fix.title LIKE '[AUTO-FIX]%' OR fix.title LIKE '[RETRY]%')
+                AND fix.status IN ('pending','running')
+            )
+        `).all() as { pid: string }[]
+
+        for (const { pid } of stuckProjects) {
+          console.log(`[watchdog] 🔧 Project ${pid} has failed missions with no active fix loop — triggering auto-loop`)
+          fetch(`${baseUrl}/api/missions/${pid}/execute`, { method: 'POST', headers: { 'x-watchdog-autoloop': '1' } })
+            .catch((e: Error) => console.error(`[watchdog] auto-loop trigger failed for ${pid}:`, e.message))
         }
       } catch {}
     }
@@ -115,9 +150,9 @@ export async function POST(request: Request) {
     const id = `mission-${uuidv4().slice(0, 8)}`
 
     db.prepare(`
-      INSERT INTO missions (id, title, description, agent_id, priority, scheduled_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, body.title, body.description, body.agent_id, body.priority || 'normal', body.scheduled_at || null)
+      INSERT INTO missions (id, title, description, agent_id, priority, scheduled_at, parent_mission_id, phase)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, body.title, body.description, body.agent_id, body.priority || 'normal', body.scheduled_at || null, body.parent_mission_id || null, body.phase ?? null)
 
     const mission = db.prepare(`
       SELECT m.*, a.name as agent_name, a.sprite as agent_sprite, a.color as agent_color

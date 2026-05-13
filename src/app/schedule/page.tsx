@@ -6,6 +6,7 @@ import type { ScheduledJob } from '@/lib/scheduler'
 import { describeSchedule } from '@/lib/scheduler'
 import PixelSprite from '@/components/PixelSprite'
 import { Trash2, Power } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 const TEAM_COLOR: Record<string, string> = { CORE: '#ff2d78', TECH: '#2d7fff', CREATIVE: '#a855f7', BUSINESS: '#22c55e', FINANCE: '#06b6d4' }
 const STATUS_COLOR: Record<string, string> = { done: '#22c55e', running: '#2d7fff', failed: '#ef4444', pending: '#374151' }
@@ -110,6 +111,7 @@ const DEFAULT_JOB_FORM = {
 }
 
 export default function SchedulePage() {
+  const { t } = useLanguage()
   const [agents, setAgents] = useState<Agent[]>([])
   const [missions, setMissions] = useState<MissionRow[]>([])
   const [upcoming, setUpcoming] = useState<MissionRow[]>([])
@@ -207,12 +209,12 @@ export default function SchedulePage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="font-orbitron font-bold text-white" style={{ fontSize: '28px', letterSpacing: '0.05em' }}>SCHEDULE</h1>
-          <p className="font-orbitron mt-1" style={{ fontSize: '10px', color: '#374151', letterSpacing: '0.1em' }}>// AGENT TIMELINE & AUTO-SCHEDULE</p>
+          <h1 className="font-orbitron font-bold text-white" style={{ fontSize: '28px', letterSpacing: '0.05em' }}>{t('schedule_title')}</h1>
+          <p className="font-orbitron mt-1" style={{ fontSize: '10px', color: '#374151', letterSpacing: '0.1em' }}>{t('schedule_subtitle')}</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowJobForm(true)} className="font-orbitron px-3 py-2 rounded text-xs"
-            style={{ background: 'rgba(0,229,255,0.1)', border: '1px solid rgba(0,229,255,0.3)', color: '#00e5ff', letterSpacing: '0.06em' }}>
+            style={{ background: 'rgba(212,67,107,0.1)', border: '1px solid rgba(212,67,107,0.3)', color: '#E8365D', letterSpacing: '0.06em' }}>
             + RECURRING JOB
           </button>
           <button onClick={() => { setShowForm(true); setForm(f => ({ ...f, scheduled_at: defaultScheduled() })) }} className="btn-deploy">
@@ -222,16 +224,16 @@ export default function SchedulePage() {
       </div>
 
       {/* ── TIMELINE ── */}
-      <div className="rounded-xl mb-6 p-4" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+      <div className="rounded-xl mb-6 p-4" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
         <div className="flex items-center justify-between mb-4">
-          <span className="font-orbitron" style={{ fontSize: '10px', color: '#00e5ff', letterSpacing: '0.1em' }}>// AGENT ACTIVITY TIMELINE</span>
+          <span className="font-orbitron" style={{ fontSize: '10px', color: '#E8365D', letterSpacing: '0.1em' }}>// AGENT ACTIVITY TIMELINE</span>
           <div className="flex gap-1.5">
             {[6, 12, 24].map(h => (
               <button key={h} onClick={() => setWindowHours(h)}
                 className="font-orbitron px-2 py-1 rounded"
                 style={windowHours === h
-                  ? { background: 'rgba(0,229,255,0.15)', color: '#00e5ff', fontSize: '8px' }
-                  : { background: '#111820', color: '#374151', fontSize: '8px' }}>
+                  ? { background: 'rgba(212,67,107,0.15)', color: '#E8365D', fontSize: '8px' }
+                  : { background: '#181218', color: '#374151', fontSize: '8px' }}>
                 {h}H
               </button>
             ))}
@@ -263,9 +265,9 @@ export default function SchedulePage() {
       </div>
 
       {/* ── RECURRING JOBS ── */}
-      <div className="rounded-xl mb-6 p-4" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+      <div className="rounded-xl mb-6 p-4" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
         <div className="flex items-center justify-between mb-4">
-          <span className="font-orbitron" style={{ fontSize: '10px', color: '#00e5ff', letterSpacing: '0.1em' }}>// RECURRING JOBS</span>
+          <span className="font-orbitron" style={{ fontSize: '10px', color: '#E8365D', letterSpacing: '0.1em' }}>// RECURRING JOBS</span>
           <span className="font-orbitron" style={{ fontSize: '8px', color: '#374151' }}>{jobs.length} JOB{jobs.length !== 1 ? 'S' : ''}</span>
         </div>
 
@@ -279,14 +281,14 @@ export default function SchedulePage() {
               const agent = agents.find(a => a.id === job.agent_id)
               const teamColor = TEAM_COLOR[job.agent_team || ''] || '#374151'
               return (
-                <div key={job.id} className="flex items-center gap-3 rounded-lg p-3" style={{ background: '#0a0c12', border: `1px solid ${job.enabled ? '#1a2d40' : '#111820'}`, opacity: job.enabled ? 1 : 0.5 }}>
+                <div key={job.id} className="flex items-center gap-3 rounded-lg p-3" style={{ background: '#0a0c12', border: `1px solid ${job.enabled ? '#1a2d40' : '#181218'}`, opacity: job.enabled ? 1 : 0.5 }}>
                   <PixelSprite agentId={job.agent_id} size={32} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-white font-medium truncate">{job.title}</div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="font-orbitron" style={{ fontSize: '8px', color: '#64748b' }}>{job.agent_name}</span>
                       <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '7px', background: `${teamColor}22`, color: teamColor }}>{job.agent_team}</span>
-                      <span className="font-orbitron" style={{ fontSize: '8px', color: '#00e5ff' }}>📅 {describeSchedule(job)}</span>
+                      <span className="font-orbitron" style={{ fontSize: '8px', color: '#E8365D' }}>📅 {describeSchedule(job)}</span>
                     </div>
                   </div>
                   <div className="text-right mr-2">
@@ -303,7 +305,7 @@ export default function SchedulePage() {
                   <div className="flex flex-col gap-1">
                     <button onClick={() => toggleJob(job.id, job.enabled)}
                       className="p-1.5 rounded transition-colors"
-                      style={{ background: job.enabled ? 'rgba(34,197,94,0.1)' : '#111820', border: `1px solid ${job.enabled ? '#22c55e' : '#1a2535'}`, color: job.enabled ? '#22c55e' : '#374151' }}
+                      style={{ background: job.enabled ? 'rgba(34,197,94,0.1)' : '#181218', border: `1px solid ${job.enabled ? '#22c55e' : '#2A1622'}`, color: job.enabled ? '#22c55e' : '#374151' }}
                       title={job.enabled ? 'Disable' : 'Enable'}>
                       <Power size={12} />
                     </button>
@@ -322,7 +324,7 @@ export default function SchedulePage() {
       </div>
 
       {/* ── SCHEDULED MISSIONS ── */}
-      <div className="rounded-xl p-4" style={{ background: '#111827', border: '1px solid #1e2d40' }}>
+      <div className="rounded-xl p-4" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
         <div className="flex items-center justify-between mb-4">
           <span className="font-orbitron" style={{ fontSize: '10px', color: '#f59e0b', letterSpacing: '0.1em' }}>// SCHEDULED MISSIONS (ONE-TIME)</span>
           <span className="font-orbitron" style={{ fontSize: '8px', color: '#374151' }}>AUTO-CHECK EVERY 10s</span>
@@ -361,8 +363,8 @@ export default function SchedulePage() {
       {/* ── CREATE ONE-TIME MISSION MODAL ── */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#111827', border: '1px solid #1a2535' }}>
-            <div className="p-5 border-b" style={{ borderColor: '#111820' }}>
+          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid #2A1622' }}>
+            <div className="p-5 border-b" style={{ borderColor: '#181218' }}>
               <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>SCHEDULE ONE-TIME MISSION</span>
             </div>
             <div className="p-5 space-y-3">
@@ -395,11 +397,11 @@ export default function SchedulePage() {
                 <textarea rows={4} placeholder="อธิบายงาน..." value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="gank-input resize-none" />
               </div>
             </div>
-            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#111820' }}>
+            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#181218' }}>
               <button onClick={createScheduled} disabled={creating || !form.title || !form.description || !form.scheduled_at} className="btn-deploy flex-1">
                 {creating ? 'SCHEDULING...' : '⏰ SCHEDULE'}
               </button>
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b', letterSpacing: '0.08em' }}>
+              <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>
                 CANCEL
               </button>
             </div>
@@ -410,9 +412,9 @@ export default function SchedulePage() {
       {/* ── CREATE RECURRING JOB MODAL ── */}
       {showJobForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
-          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#111827', border: '1px solid rgba(0,229,255,0.3)' }}>
-            <div className="p-5 border-b" style={{ borderColor: '#111820' }}>
-              <span className="font-orbitron text-xs font-bold" style={{ color: '#00e5ff', letterSpacing: '0.08em' }}>CREATE RECURRING JOB</span>
+          <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid rgba(212,67,107,0.3)' }}>
+            <div className="p-5 border-b" style={{ borderColor: '#181218' }}>
+              <span className="font-orbitron text-xs font-bold" style={{ color: '#E8365D', letterSpacing: '0.08em' }}>CREATE RECURRING JOB</span>
             </div>
             <div className="p-5 space-y-3">
               <div>
@@ -433,7 +435,7 @@ export default function SchedulePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#00e5ff', letterSpacing: '0.08em' }}>FREQUENCY</label>
+                  <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#E8365D', letterSpacing: '0.08em' }}>FREQUENCY</label>
                   <select value={jobForm.frequency} onChange={e => setJobForm(f => ({ ...f, frequency: e.target.value }))} className="gank-input">
                     <option value="daily">ทุกวัน (Daily)</option>
                     <option value="weekdays">วันทำการ (Weekdays)</option>
@@ -474,12 +476,12 @@ export default function SchedulePage() {
                 <textarea rows={4} placeholder="อธิบายงานที่ต้องทำซ้ำ..." value={jobForm.description} onChange={e => setJobForm(f => ({ ...f, description: e.target.value }))} className="gank-input resize-none" />
               </div>
             </div>
-            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#111820' }}>
+            <div className="p-4 border-t flex gap-2" style={{ borderColor: '#181218' }}>
               <button onClick={createJob} disabled={creatingJob || !jobForm.title || !jobForm.description || !jobForm.agent_id} className="btn-deploy flex-1"
-                style={{ background: 'rgba(0,229,255,0.15)', borderColor: 'rgba(0,229,255,0.4)', color: '#00e5ff' }}>
+                style={{ background: 'rgba(212,67,107,0.15)', borderColor: 'rgba(212,67,107,0.4)', color: '#E8365D' }}>
                 {creatingJob ? 'CREATING...' : '🔄 CREATE RECURRING JOB'}
               </button>
-              <button onClick={() => setShowJobForm(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#111820', border: '1px solid #1a2535', color: '#64748b', letterSpacing: '0.08em' }}>
+              <button onClick={() => setShowJobForm(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>
                 CANCEL
               </button>
             </div>

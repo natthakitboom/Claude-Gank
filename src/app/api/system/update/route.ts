@@ -57,9 +57,22 @@ export async function POST() {
             .toString()
             .trim().length > 0
 
-        // 3. Pull
+        // 3. Stash local changes, pull, then restore
+        const hasLocalChanges = execSync('git status --porcelain', { cwd: APP_DIR }).toString().trim().length > 0
+        if (hasLocalChanges) {
+          run('git stash', 'Stash local changes ชั่วคราว...')
+        }
+
         run('git pull origin main', 'กำลังดึง code ล่าสุด...')
         send('✅ Pull สำเร็จ')
+
+        if (hasLocalChanges) {
+          try {
+            run('git stash pop', 'Restore local changes...')
+          } catch {
+            send('⚠️ stash pop มี conflict — local changes ยังอยู่ใน stash', 'warn')
+          }
+        }
 
         // 4. npm install (only if package.json changed)
         if (pkgChanged) {
