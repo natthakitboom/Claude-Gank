@@ -31,7 +31,7 @@ interface DeployConfig {
 type Tab = 'agents' | 'skills' | 'memory' | 'notify' | 'deploy' | 'info'
 
 export default function SystemPage() {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const [tab, setTab] = useState<Tab>('agents')
   const [agents, setAgents] = useState<Agent[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
@@ -40,11 +40,24 @@ export default function SystemPage() {
   const [notifyConfigs, setNotifyConfigs] = useState<NotifyConfig[]>([])
   const [testResult, setTestResult] = useState('')
 
+  // Bulk agent model state
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set())
+  const [bulkModel, setBulkModel] = useState('')
+  const [bulkEffort, setBulkEffort] = useState('')
+  const [bulkApplying, setBulkApplying] = useState(false)
+  const [autoEffortRunning, setAutoEffortRunning] = useState(false)
+  const [autoEffortResult, setAutoEffortResult] = useState<{ id: string; name: string; effort: string }[] | null>(null)
+
   // System config state
   const [claudePath, setClaudePath] = useState('')
   const [claudePathAutoDetected, setClaudePathAutoDetected] = useState(false)
   const [claudePathSaving, setClaudePathSaving] = useState(false)
   const [claudePathResult, setClaudePathResult] = useState<{ ok?: boolean; version?: string; error?: string } | null>(null)
+
+  // Projects base path state
+  const [projectsBasePath, setProjectsBasePath] = useState('')
+  const [projectsPathSaving, setProjectsPathSaving] = useState(false)
+  const [projectsPathResult, setProjectsPathResult] = useState<{ ok?: boolean; path?: string; error?: string; cleared?: boolean } | null>(null)
 
   // Jira state
   const [jiraBaseUrl, setJiraBaseUrl] = useState('')
@@ -59,6 +72,15 @@ export default function SystemPage() {
   const [figmaSaving, setFigmaSaving] = useState(false)
   const [figmaResult, setFigmaResult] = useState<{ ok?: boolean; display_name?: string; email?: string; error?: string; cleared?: boolean } | null>(null)
   const [figmaConfigured, setFigmaConfigured] = useState(false)
+
+  // Microsoft SSO state
+  const [msTenantId, setMsTenantId] = useState('')
+  const [msClientId, setMsClientId] = useState('')
+  const [msClientSecret, setMsClientSecret] = useState('')
+  const [msSsoConfigured, setMsSsoConfigured] = useState(false)
+  const [msSsoEnvEnabled, setMsSsoEnvEnabled] = useState(false)
+  const [msSaving, setMsSaving] = useState(false)
+  const [msResult, setMsResult] = useState<{ ok?: boolean; message?: string; error?: string; cleared?: boolean } | null>(null)
 
   // Ollama state
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
@@ -93,12 +115,17 @@ export default function SystemPage() {
     fetch('/api/deploy/config').then((r) => r.json()).then((d) => { if (d.host !== undefined) setDeployConfig(d) })
     fetch('/api/system/config').then((r) => r.json()).then((d) => {
       if (d.claude_cli_path) { setClaudePath(d.claude_cli_path); if (d.auto_detected) setClaudePathAutoDetected(true) }
+      if (d.projects_base_path) setProjectsBasePath(d.projects_base_path)
       if (d.ollama_base_url) setOllamaUrl(d.ollama_base_url)
       if (d.ollama_models?.length) setOllamaModels(d.ollama_models)
       if (d.jira_base_url) setJiraBaseUrl(d.jira_base_url)
       if (d.jira_email) setJiraEmail(d.jira_email)
       if (d.jira_configured) setJiraConfigured(true)
       if (d.figma_configured) setFigmaConfigured(true)
+      if (d.ms_sso_configured) setMsSsoConfigured(true)
+      if (d.ms_tenant_id) setMsTenantId(d.ms_tenant_id)
+      if (d.ms_client_id) setMsClientId(d.ms_client_id)
+      if (d.ms_sso_env_enabled) setMsSsoEnvEnabled(true)
     })
     fetch('/api/projects').then((r) => r.json()).then((d) => setDeployProjects(Array.isArray(d) ? d : []))
   }, [])
@@ -147,13 +174,13 @@ export default function SystemPage() {
   }
 
   const testNotify = async () => {
-    setTestResult('Sending...')
+    setTestResult(t('sys_notify_sending'))
     const res = await fetch('/api/notify', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'send',
         title: '🔔 Test Notification — ทดสอบการแจ้งเตือน',
-        message: `✅ ระบบแจ้งเตือนทำงานปกติ!\n\n📊 สถานะระบบ:\n• Agents: ${agents.length} คน\n• Platform: Claude Gank Dashboard\n• Connection: สำเร็จ\n\n💬 เมื่อ agent ทำงานเสร็จหรือล้มเหลว จะส่งข้อความแบบนี้ให้อัตโนมัติ พร้อมรายละเอียดผลลัพธ์ของ mission`,
+        message: `✅ ระบบแจ้งเตือนทำงานปกติ!\n\n📊 สถานะระบบ:\n• Agents: ${agents.length} คน\n• Platform: MI Gang Dashboard\n• Connection: สำเร็จ\n\n💬 เมื่อ agent ทำงานเสร็จหรือล้มเหลว จะส่งข้อความแบบนี้ให้อัตโนมัติ พร้อมรายละเอียดผลลัพธ์ของ mission`,
         agent_name: 'System',
       }),
     })
@@ -207,105 +234,307 @@ export default function SystemPage() {
 
       {/* Tabs */}
       <div className="flex gap-0 border-b mb-6" style={{ borderColor: '#181218' }}>
-        {([['agents', 'AGENTS'], ['skills', 'SKILLS'], ['memory', 'MEMORY'], ['notify', '🔔 NOTIFY'], ['deploy', '🚀 DEPLOY'], ['info', 'SYSTEM INFO']] as [Tab, string][]).map(([key, label]) => (
+        {([['agents', t('sys_tab_agents')], ['skills', t('sys_tab_skills')], ['memory', t('sys_tab_memory')], ['notify', t('sys_tab_notify')], ['deploy', t('sys_tab_deploy')], ['info', t('sys_tab_info')]] as [Tab, string][]).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)} className={`gank-tab ${tab === key ? 'active' : ''}`}>{label}</button>
         ))}
       </div>
 
       {/* ════════ AGENTS TAB ════════ */}
-      {tab === 'agents' && (
-        <div className="space-y-3">
-          <div className="font-orbitron mb-4" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>
-            AGENT CONFIGURATION — คลิก dropdown เพื่อเปลี่ยน model หรือ effort ได้ทันที
-          </div>
-          {TEAM_ORDER.map((team) => {
-            const teamAgents = agents.filter((a) => a.team === team)
-            if (teamAgents.length === 0) return null
-            const tColor = TEAM_COLOR[team] || '#374151'
-            return (
-              <div key={team}>
-                <div className="font-orbitron mb-2 flex items-center gap-2" style={{ fontSize: '9px', color: tColor, letterSpacing: '0.1em' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: tColor, display: 'inline-block' }} />
-                  {team}
+      {tab === 'agents' && (() => {
+        const allIds = agents.map(a => a.id)
+        const allSelected = allIds.length > 0 && allIds.every(id => selectedAgentIds.has(id))
+        const someSelected = selectedAgentIds.size > 0
+
+        const toggleAgent = (id: string) => setSelectedAgentIds(prev => {
+          const next = new Set(prev)
+          next.has(id) ? next.delete(id) : next.add(id)
+          return next
+        })
+
+        const toggleAll = () => setSelectedAgentIds(allSelected ? new Set() : new Set(allIds))
+
+        const applyBulk = async () => {
+          if (!bulkModel && !bulkEffort) return
+          setBulkApplying(true)
+          const ids = selectedAgentIds.size > 0 ? Array.from(selectedAgentIds) : allIds
+          const patch: Partial<Agent> = {}
+          if (bulkModel) patch.model = bulkModel
+          if (bulkEffort) patch.effort = bulkEffort as Agent['effort']
+          await Promise.all(ids.map(id => updateAgent(id, patch)))
+          setBulkApplying(false)
+          setSelectedAgentIds(new Set())
+        }
+
+        const runAutoEffort = async () => {
+          setAutoEffortRunning(true)
+          setAutoEffortResult(null)
+          try {
+            const res = await fetch('/api/system/auto-effort', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agents: agents.map(a => ({ id: a.id, name: a.name, role: a.role, team: a.team, model: a.model })) }),
+            })
+            const data = await res.json() as { ok?: boolean; recommendations?: Record<string, string>; error?: string }
+            if (data.ok && data.recommendations) {
+              const preview = agents
+                .filter(a => data.recommendations![a.id])
+                .map(a => ({ id: a.id, name: a.name, effort: data.recommendations![a.id] }))
+              setAutoEffortResult(preview)
+              // Apply all recommendations
+              await Promise.all(
+                Object.entries(data.recommendations).map(([id, effort]) =>
+                  updateAgent(id, { effort: effort as Agent['effort'] })
+                )
+              )
+            } else {
+              alert(data.error ?? t('err_ai_analyze'))
+            }
+          } catch {
+            alert(t('err_connection'))
+          } finally {
+            setAutoEffortRunning(false)
+          }
+        }
+
+        return (
+          <div className="space-y-3">
+            {/* Bulk toolbar */}
+            <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
+              {/* Select all checkbox */}
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  style={{ accentColor: '#E8365D', width: 14, height: 14, cursor: 'pointer' }}
+                />
+                <span className="font-orbitron text-white" style={{ fontSize: '9px', letterSpacing: '0.06em' }}>
+                  {someSelected ? `${selectedAgentIds.size} / ${allIds.length} ${t('sys_selected')}` : t('sys_select_all')}
+                </span>
+              </label>
+
+              <div style={{ width: 1, height: 20, background: '#2E1E27' }} />
+
+              {/* Bulk model */}
+              <div className="flex items-center gap-2">
+                <label className="font-orbitron" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.06em' }}>MODEL</label>
+                <select
+                  value={bulkModel}
+                  onChange={e => setBulkModel(e.target.value)}
+                  className="gank-input"
+                  style={{ fontSize: '9px', padding: '3px 6px', minWidth: 170 }}
+                >
+                  <option value="">{t('sys_no_change')}</option>
+                  <optgroup label="── Claude">
+                    {Object.entries(MODEL_LABELS).map(([id, label]) => (
+                      <option key={id} value={id}>{label}</option>
+                    ))}
+                  </optgroup>
+                  {ollamaModels.length > 0 && (
+                    <optgroup label="── Ollama (Local)">
+                      {ollamaModels.map((m) => (
+                        <option key={`ollama:${m}`} value={`ollama:${m}`}>{m}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              {/* Bulk effort */}
+              <div className="flex items-center gap-2">
+                <label className="font-orbitron" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.06em' }}>EFFORT</label>
+                <select
+                  value={bulkEffort}
+                  onChange={e => setBulkEffort(e.target.value)}
+                  className="gank-input"
+                  style={{ fontSize: '9px', padding: '3px 6px' }}
+                >
+                  <option value="">{t('sys_no_change')}</option>
+                  <option value="low">{t('effort_option_low')}</option>
+                  <option value="normal">{t('effort_option_normal')}</option>
+                  <option value="high">{t('effort_option_high')}</option>
+                </select>
+              </div>
+
+              {/* Apply button */}
+              <button
+                onClick={applyBulk}
+                disabled={bulkApplying || (!bulkModel && !bulkEffort)}
+                className="font-orbitron px-3 py-1.5 rounded-lg transition-all ml-auto"
+                style={{
+                  fontSize: '9px', letterSpacing: '0.05em',
+                  background: (!bulkModel && !bulkEffort) || bulkApplying ? '#1a1020' : 'rgba(232,54,93,0.15)',
+                  border: `1px solid ${(!bulkModel && !bulkEffort) || bulkApplying ? '#2E1E27' : 'rgba(232,54,93,0.4)'}`,
+                  color: (!bulkModel && !bulkEffort) || bulkApplying ? '#374151' : '#E8365D',
+                  cursor: (!bulkModel && !bulkEffort) || bulkApplying ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {bulkApplying ? t('sys_applying') : someSelected ? `${t('sys_apply_to')} ${selectedAgentIds.size} ${t('sys_agents_label')}` : `${t('sys_apply_to_all')} (${allIds.length})`}
+              </button>
+
+              {/* AI Auto Effort button */}
+              <button
+                onClick={runAutoEffort}
+                disabled={autoEffortRunning}
+                className="font-orbitron px-3 py-1.5 rounded-lg transition-all"
+                style={{
+                  fontSize: '9px', letterSpacing: '0.05em',
+                  background: autoEffortRunning ? '#1a1020' : 'rgba(168,85,247,0.12)',
+                  border: `1px solid ${autoEffortRunning ? '#2E1E27' : 'rgba(168,85,247,0.35)'}`,
+                  color: autoEffortRunning ? '#374151' : '#a855f7',
+                  cursor: autoEffortRunning ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {autoEffortRunning
+                  ? <><span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span> {t('sys_ai_analyzing')}</>
+                  : <>{t('sys_ai_auto_effort')}</>}
+              </button>
+            </div>
+
+            {/* AI result preview */}
+            {autoEffortResult && (
+              <div className="rounded-xl px-4 py-3" style={{ background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.2)' }}>
+                <div className="font-orbitron mb-2 flex items-center justify-between" style={{ fontSize: '8px', color: '#a855f7', letterSpacing: '0.06em' }}>
+                  <span>{t('sys_ai_effort_applied')}</span>
+                  <button onClick={() => setAutoEffortResult(null)} style={{ background: 'none', border: 'none', color: '#4b5563', cursor: 'pointer', fontSize: 10 }}>✕</button>
                 </div>
-                <div className="rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
-                  {teamAgents.map((agent, idx) => (
-                    <div key={agent.id} className="flex items-center gap-3 px-4 py-3"
-                      style={{ borderTop: idx > 0 ? '1px solid #181218' : undefined }}>
-                      <PixelSprite agentId={agent.id} size={32} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-white">{agent.name}</div>
-                        <div className="font-orbitron" style={{ fontSize: '8px', color: '#475569' }}>{agent.role}</div>
-                      </div>
-
-                      {/* Model selector */}
-                      <div className="flex flex-col gap-0.5">
-                        <label className="font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.06em' }}>MODEL</label>
-                        <select
-                          value={agent.model}
-                          onChange={e => updateAgent(agent.id, { model: e.target.value })}
-                          className="gank-input"
-                          style={{ fontSize: '9px', padding: '3px 6px', minWidth: 160 }}
-                        >
-                          <optgroup label="── Claude">
-                            {Object.entries(MODEL_LABELS).map(([id, label]) => (
-                              <option key={id} value={id}>{label}</option>
-                            ))}
-                          </optgroup>
-                          {ollamaModels.length > 0 && (
-                            <optgroup label="── Ollama (Local)">
-                              {ollamaModels.map((m) => (
-                                <option key={`ollama:${m}`} value={`ollama:${m}`}>{m}</option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </select>
-                      </div>
-
-                      {/* Effort selector */}
-                      <div className="flex flex-col gap-0.5">
-                        <label className="font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.06em' }}>EFFORT</label>
-                        <select
-                          value={agent.effort}
-                          onChange={e => updateAgent(agent.id, { effort: e.target.value as Agent['effort'] })}
-                          className="gank-input"
-                          style={{ fontSize: '9px', padding: '3px 6px' }}
-                        >
-                          <option value="low">Low</option>
-                          <option value="normal">Normal</option>
-                          <option value="high">High</option>
-                        </select>
-                      </div>
-
-                      {/* Current model badge */}
-                      <div className="font-orbitron px-2 py-1 rounded flex-shrink-0" style={{
-                        fontSize: '8px',
-                        background: agent.model.startsWith('ollama:') ? 'rgba(251,191,36,0.15)'
-                          : agent.model.includes('opus') ? 'rgba(168,85,247,0.15)'
-                          : agent.model.includes('sonnet') ? 'rgba(45,127,255,0.15)'
-                          : 'rgba(34,197,94,0.15)',
-                        color: agent.model.startsWith('ollama:') ? '#fbbf24'
-                          : agent.model.includes('opus') ? '#a855f7'
-                          : agent.model.includes('sonnet') ? '#2d7fff'
-                          : '#22c55e',
+                <div className="flex flex-wrap gap-2">
+                  {autoEffortResult.map(r => (
+                    <div key={r.id} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
+                      <span className="text-xs text-white">{r.name}</span>
+                      <span className="font-orbitron px-1.5 py-0.5 rounded" style={{
+                        fontSize: '7px',
+                        background: r.effort === 'high' ? 'rgba(239,68,68,0.15)' : r.effort === 'normal' ? 'rgba(45,127,255,0.15)' : 'rgba(34,197,94,0.15)',
+                        color: r.effort === 'high' ? '#ef4444' : r.effort === 'normal' ? '#2d7fff' : '#22c55e',
                       }}>
-                        {agent.model.startsWith('ollama:') ? 'OLLAMA' : agent.model.includes('opus') ? 'OPUS' : agent.model.includes('sonnet') ? 'SONNET' : 'HAIKU'}
-                      </div>
+                        {r.effort.toUpperCase()}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
-            )
-          })}
-        </div>
-      )}
+            )}
+
+            {/* Agent rows */}
+            {TEAM_ORDER.map((team) => {
+              const teamAgents = agents.filter((a) => a.team === team)
+              if (teamAgents.length === 0) return null
+              const tColor = TEAM_COLOR[team] || '#374151'
+              const teamAllSelected = teamAgents.every(a => selectedAgentIds.has(a.id))
+              return (
+                <div key={team}>
+                  {/* Team header with select-team checkbox */}
+                  <div className="font-orbitron mb-2 flex items-center gap-2" style={{ fontSize: '9px', color: tColor, letterSpacing: '0.1em' }}>
+                    <input
+                      type="checkbox"
+                      checked={teamAllSelected}
+                      onChange={() => {
+                        const teamIds = teamAgents.map(a => a.id)
+                        setSelectedAgentIds(prev => {
+                          const next = new Set(prev)
+                          teamAllSelected ? teamIds.forEach(id => next.delete(id)) : teamIds.forEach(id => next.add(id))
+                          return next
+                        })
+                      }}
+                      style={{ accentColor: tColor, width: 12, height: 12, cursor: 'pointer' }}
+                    />
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: tColor, display: 'inline-block' }} />
+                    {team}
+                    <span style={{ color: '#374151', fontWeight: 400 }}>({teamAgents.length})</span>
+                  </div>
+                  <div className="rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
+                    {teamAgents.map((agent, idx) => (
+                      <div
+                        key={agent.id}
+                        className="flex items-center gap-3 px-4 py-3 transition-colors"
+                        style={{
+                          borderTop: idx > 0 ? '1px solid #1a1020' : undefined,
+                          background: selectedAgentIds.has(agent.id) ? 'rgba(232,54,93,0.04)' : undefined,
+                        }}
+                      >
+                        {/* Row checkbox */}
+                        <input
+                          type="checkbox"
+                          checked={selectedAgentIds.has(agent.id)}
+                          onChange={() => toggleAgent(agent.id)}
+                          style={{ accentColor: '#E8365D', width: 13, height: 13, cursor: 'pointer', flexShrink: 0 }}
+                        />
+                        <PixelSprite agentId={agent.id} size={32} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-white">{lang === 'EN' && agent.name_en ? agent.name_en : agent.name}</div>
+                          <div className="font-orbitron" style={{ fontSize: '8px', color: '#475569' }}>{agent.role}</div>
+                        </div>
+
+                        {/* Model selector */}
+                        <div className="flex flex-col gap-0.5">
+                          <label className="font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.06em' }}>MODEL</label>
+                          <select
+                            value={agent.model}
+                            onChange={e => updateAgent(agent.id, { model: e.target.value })}
+                            className="gank-input"
+                            style={{ fontSize: '9px', padding: '3px 6px', minWidth: 160 }}
+                          >
+                            <optgroup label="── Claude">
+                              {Object.entries(MODEL_LABELS).map(([id, label]) => (
+                                <option key={id} value={id}>{label}</option>
+                              ))}
+                            </optgroup>
+                            {ollamaModels.length > 0 && (
+                              <optgroup label="── Ollama (Local)">
+                                {ollamaModels.map((m) => (
+                                  <option key={`ollama:${m}`} value={`ollama:${m}`}>{m}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                        </div>
+
+                        {/* Effort selector */}
+                        <div className="flex flex-col gap-0.5">
+                          <label className="font-orbitron" style={{ fontSize: '7px', color: '#374151', letterSpacing: '0.06em' }}>EFFORT</label>
+                          <select
+                            value={agent.effort}
+                            onChange={e => updateAgent(agent.id, { effort: e.target.value as Agent['effort'] })}
+                            className="gank-input"
+                            style={{ fontSize: '9px', padding: '3px 6px' }}
+                          >
+                            <option value="low">{t('effort_option_low')}</option>
+                            <option value="normal">{t('effort_option_normal')}</option>
+                            <option value="high">{t('effort_option_high')}</option>
+                          </select>
+                        </div>
+
+                        {/* Current model badge */}
+                        <div className="font-orbitron px-2 py-1 rounded flex-shrink-0" style={{
+                          fontSize: '8px',
+                          background: agent.model.startsWith('ollama:') ? 'rgba(251,191,36,0.15)'
+                            : agent.model.includes('opus') ? 'rgba(168,85,247,0.15)'
+                            : agent.model.includes('sonnet') ? 'rgba(45,127,255,0.15)'
+                            : 'rgba(34,197,94,0.15)',
+                          color: agent.model.startsWith('ollama:') ? '#fbbf24'
+                            : agent.model.includes('opus') ? '#a855f7'
+                            : agent.model.includes('sonnet') ? '#2d7fff'
+                            : '#22c55e',
+                        }}>
+                          {agent.model.startsWith('ollama:') ? 'OLLAMA' : agent.model.includes('opus') ? 'OPUS' : agent.model.includes('sonnet') ? 'SONNET' : 'HAIKU'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
 
       {/* ════════ SKILLS TAB ════════ */}
       {tab === 'skills' && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>SKILL LIBRARY ({skills.length})</div>
-            <button onClick={() => setShowCreateSkill(true)} className="btn-deploy" style={{ padding: '6px 14px', fontSize: '9px' }}>+ CREATE SKILL</button>
+            <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>{t('sys_skill_library')} ({skills.length})</div>
+            <button onClick={() => setShowCreateSkill(true)} className="btn-deploy" style={{ padding: '6px 14px', fontSize: '9px' }}>{t('sys_create_skill')}</button>
           </div>
 
           {/* Category filter */}
@@ -343,7 +572,7 @@ export default function SystemPage() {
               className="rounded-lg p-4 flex flex-col items-center justify-center gap-2 transition-all"
               style={{ background: '#0A0709', border: '2px dashed #1a2030', minHeight: 140 }}>
               <span className="text-xl" style={{ color: '#1f2937' }}>+</span>
-              <span className="font-orbitron" style={{ fontSize: '9px', color: '#1f2937', letterSpacing: '0.08em' }}>CREATE SKILL</span>
+              <span className="font-orbitron" style={{ fontSize: '9px', color: '#1f2937', letterSpacing: '0.08em' }}>{t('sys_create_skill')}</span>
             </button>
           </div>
 
@@ -369,8 +598,8 @@ export default function SystemPage() {
                     <div className="terminal rounded-lg p-3 text-xs">{viewSkill.prompt_template}</div>
                   </div>
                   <div className="flex gap-3">
-                    <span className="font-orbitron" style={{ fontSize: '9px', color: '#374151' }}>USED {viewSkill.usage_count || 0}x</span>
-                    <span className="font-orbitron" style={{ fontSize: '9px', color: '#1f2937' }}>CREATED {new Date(viewSkill.created_at).toLocaleDateString('th-TH')}</span>
+                    <span className="font-orbitron" style={{ fontSize: '9px', color: '#374151' }}>{t('sys_skill_used')} {viewSkill.usage_count || 0}x</span>
+                    <span className="font-orbitron" style={{ fontSize: '9px', color: '#1f2937' }}>{t('sys_skill_created')} {new Date(viewSkill.created_at).toLocaleDateString('th-TH')}</span>
                   </div>
                 </div>
               </div>
@@ -382,7 +611,7 @@ export default function SystemPage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
               <div className="w-full max-w-lg rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid #2A1622' }}>
                 <div className="p-5 border-b" style={{ borderColor: '#181218' }}>
-                  <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>CREATE NEW SKILL</span>
+                  <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>{t('sys_create_skill_modal')}</span>
                 </div>
                 <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
                   <div className="grid grid-cols-2 gap-3">
@@ -411,8 +640,8 @@ export default function SystemPage() {
                   </div>
                 </div>
                 <div className="p-4 border-t flex gap-2" style={{ borderColor: '#181218' }}>
-                  <button onClick={createSkill} disabled={!skillForm.name || !skillForm.prompt_template} className="btn-deploy flex-1">CREATE</button>
-                  <button onClick={() => setShowCreateSkill(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>CANCEL</button>
+                  <button onClick={createSkill} disabled={!skillForm.name || !skillForm.prompt_template} className="btn-deploy flex-1">{t('sys_skill_create_btn')}</button>
+                  <button onClick={() => setShowCreateSkill(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>{t('sys_skill_cancel_btn')}</button>
                 </div>
               </div>
             </div>
@@ -424,16 +653,16 @@ export default function SystemPage() {
       {tab === 'memory' && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>MEMORY DATABASE ({memories.length})</div>
-            <button onClick={() => setShowAddMemory(true)} className="btn-deploy" style={{ padding: '6px 14px', fontSize: '9px' }}>+ ADD MEMORY</button>
+            <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>{t('sys_memory_db')} ({memories.length})</div>
+            <button onClick={() => setShowAddMemory(true)} className="btn-deploy" style={{ padding: '6px 14px', fontSize: '9px' }}>{t('sys_add_memory')}</button>
           </div>
 
           {/* Stats */}
           <div className="grid grid-cols-3 gap-3 mb-4">
             {[
-              { label: 'TOTAL', value: memories.length, color: '#2d7fff' },
-              { label: 'HIGH IMPORTANCE', value: memories.filter((m) => m.importance >= 8).length, color: '#ef4444' },
-              { label: 'AGENTS', value: new Set(memories.map((m) => m.agent_id)).size, color: '#22c55e' },
+              { label: t('total'), value: memories.length, color: '#2d7fff' },
+              { label: t('sys_high_importance'), value: memories.filter((m) => m.importance >= 8).length, color: '#ef4444' },
+              { label: t('agents_count'), value: new Set(memories.map((m) => m.agent_id)).size, color: '#22c55e' },
             ].map((s) => (
               <div key={s.label} className="stat-card">
                 <div className="font-orbitron mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>{s.label}</div>
@@ -450,7 +679,7 @@ export default function SystemPage() {
               <button key={a.id} onClick={() => setFilterAgent(a.id)} className="flex items-center gap-1 px-2 py-1 rounded transition-all"
                 style={filterAgent === a.id ? { background: 'rgba(212,67,107,0.1)', border: '1px solid #E8365D33' } : { background: '#181218', border: '1px solid transparent' }}>
                 <PixelSprite agentId={a.id} size={14} />
-                <span className="text-xs" style={{ color: filterAgent === a.id ? '#e2e8f0' : '#374151' }}>{a.name}</span>
+                <span className="text-xs" style={{ color: filterAgent === a.id ? '#e2e8f0' : '#374151' }}>{lang === 'EN' && a.name_en ? a.name_en : a.name}</span>
               </button>
             ))}
           </div>
@@ -458,7 +687,7 @@ export default function SystemPage() {
           {/* Memory grid */}
           {memories.length === 0 ? (
             <div className="text-center py-12 rounded-lg font-orbitron" style={{ background: '#0A0709', border: '1px solid #181218', color: '#1f2937', fontSize: '9px', letterSpacing: '0.08em' }}>
-              NO MEMORIES STORED
+              {t('sys_no_memories')}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
@@ -494,18 +723,18 @@ export default function SystemPage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.85)' }}>
               <div className="w-full max-w-md rounded-xl overflow-hidden" style={{ background: '#181218', border: '1px solid #2A1622' }}>
                 <div className="p-5 border-b" style={{ borderColor: '#181218' }}>
-                  <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>ADD MEMORY</span>
+                  <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>{t('sys_add_memory_modal')}</span>
                 </div>
                 <div className="p-5 space-y-3">
                   <div>
                     <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>AGENT</label>
                     <select value={memForm.agent_id} onChange={(e) => setMemForm((f) => ({ ...f, agent_id: e.target.value }))} className="gank-input">
-                      {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      {agents.map((a) => <option key={a.id} value={a.id}>{lang === 'EN' && a.name_en ? a.name_en : a.name}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>CONTENT</label>
-                    <textarea rows={4} value={memForm.content} onChange={(e) => setMemForm((f) => ({ ...f, content: e.target.value }))} className="gank-input resize-none" placeholder="สิ่งที่ต้องการให้ agent จำ..." />
+                    <textarea rows={4} value={memForm.content} onChange={(e) => setMemForm((f) => ({ ...f, content: e.target.value }))} className="gank-input resize-none" placeholder={t('sys_mem_content_placeholder')} />
                   </div>
                   <div>
                     <label className="font-orbitron block mb-2" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>IMPORTANCE: {memForm.importance}/10</label>
@@ -513,8 +742,8 @@ export default function SystemPage() {
                   </div>
                 </div>
                 <div className="p-4 border-t flex gap-2" style={{ borderColor: '#181218' }}>
-                  <button onClick={addMemory} disabled={!memForm.content} className="btn-deploy flex-1">SAVE</button>
-                  <button onClick={() => setShowAddMemory(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>CANCEL</button>
+                  <button onClick={addMemory} disabled={!memForm.content} className="btn-deploy flex-1">{t('sys_mem_save_btn')}</button>
+                  <button onClick={() => setShowAddMemory(false)} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>{t('sys_mem_cancel_btn')}</button>
                 </div>
               </div>
             </div>
@@ -527,8 +756,8 @@ export default function SystemPage() {
         <div className="max-w-3xl space-y-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-white font-semibold text-sm">Notification Integrations</h2>
-              <p style={{ fontSize: '10px', color: '#475569' }}>เชื่อมต่อ LINE / Microsoft Teams เพื่อรับแจ้งเตือนจาก agents</p>
+              <h2 className="text-white font-semibold text-sm">{t('sys_notify_title')}</h2>
+              <p style={{ fontSize: '10px', color: '#475569' }}>{t('sys_notify_desc')}</p>
             </div>
             <div className="flex gap-2">
               <button onClick={() => addNotifyConfig('line')} className="font-orbitron px-3 py-1.5 rounded" style={{ fontSize: '9px', background: 'rgba(6,199,85,0.15)', border: '1px solid rgba(6,199,85,0.4)', color: '#06c755' }}>
@@ -543,7 +772,7 @@ export default function SystemPage() {
           {notifyConfigs.length === 0 && (
             <div className="text-center py-12 rounded-lg" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
               <div style={{ fontSize: '32px', opacity: 0.3 }}>🔔</div>
-              <div className="font-orbitron mt-2" style={{ fontSize: '9px', color: '#374151' }}>ยังไม่มีการเชื่อมต่อ — กด + LINE หรือ + TEAMS เพื่อเริ่ม</div>
+              <div className="font-orbitron mt-2" style={{ fontSize: '9px', color: '#374151' }}>{t('sys_notify_empty')}</div>
             </div>
           )}
 
@@ -561,7 +790,7 @@ export default function SystemPage() {
                       background: config.enabled ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
                       color: config.enabled ? '#22c55e' : '#ef4444',
                     }}>
-                      {config.enabled ? 'ACTIVE' : 'DISABLED'}
+                      {config.enabled ? t('sys_notify_active') : t('sys_notify_disabled')}
                     </span>
                   </div>
                 </div>
@@ -591,7 +820,7 @@ export default function SystemPage() {
                         style={{ fontSize: '10px' }}
                       />
                       <div style={{ fontSize: '8px', color: '#374151', marginTop: 4 }}>
-                        สร้าง Messaging API channel ที่ <span style={{ color: '#06c755' }}>developers.line.biz</span> → Channel settings → Channel access token
+                        {t('sys_notify_line_channel_hint')}
                       </div>
                     </div>
                     <div>
@@ -605,7 +834,7 @@ export default function SystemPage() {
                         style={{ fontSize: '10px' }}
                       />
                       <div style={{ fontSize: '8px', color: '#374151', marginTop: 4 }}>
-                        userId ได้จาก webhook event / groupId ได้เมื่อ invite bot เข้ากลุ่ม
+                        {t('sys_notify_line_target_hint')}
                       </div>
                     </div>
                   </div>
@@ -621,21 +850,21 @@ export default function SystemPage() {
                       style={{ fontSize: '10px' }}
                     />
                     <div style={{ fontSize: '8px', color: '#374151', marginTop: 4 }}>
-                      ⚠️ O365 Connectors หมดอายุ <span style={{ color: '#ef4444' }}>30 เม.ย. 2026</span> — ใช้ <span style={{ color: '#6264a7' }}>Power Automate Workflows</span> แทน
+                      {t('sys_notify_teams_hint')}
                     </div>
                     <div style={{ fontSize: '8px', color: '#374151', marginTop: 2 }}>
-                      Teams → Channel → Workflows → Post to a channel when a webhook request is received → copy URL
+                      {t('sys_notify_teams_steps')}
                     </div>
                   </div>
                 )}
 
                 <div>
-                  <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>NOTIFY WHEN</label>
+                  <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>{t('sys_notify_when_label')}</label>
                   <div className="flex gap-2 flex-wrap">
                     {[
-                      { key: 'notify_on_done', label: '✅ Mission Done', color: '#22c55e' },
-                      { key: 'notify_on_failed', label: '❌ Mission Failed', color: '#ef4444' },
-                      { key: 'notify_on_skill_update', label: '🧠 Skill Update', color: '#a855f7' },
+                      { key: 'notify_on_done', label: t('sys_notify_done_label'), color: '#22c55e' },
+                      { key: 'notify_on_failed', label: t('sys_notify_failed_label'), color: '#ef4444' },
+                      { key: 'notify_on_skill_update', label: t('sys_notify_skill_label'), color: '#a855f7' },
                     ].map(opt => {
                       const active = (config as any)[opt.key]
                       return (
@@ -659,7 +888,7 @@ export default function SystemPage() {
 
                 {/* Agent filter */}
                 <div>
-                  <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>AGENTS TO NOTIFY</label>
+                  <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>{t('sys_notify_agents_label')}</label>
                   <div className="flex gap-1.5 flex-wrap">
                     {(() => {
                       const filter: string[] = JSON.parse((config as any).agent_filter_json || '[]')
@@ -697,7 +926,7 @@ export default function SystemPage() {
                                   border: `1px solid ${active ? 'rgba(45,127,255,0.3)' : '#2A1622'}`,
                                 }}
                               >
-                                {agent.name}
+                                {lang === 'EN' && agent.name_en ? agent.name_en : agent.name}
                               </button>
                             )
                           })}
@@ -706,7 +935,7 @@ export default function SystemPage() {
                     })()}
                   </div>
                   <div style={{ fontSize: '7px', color: '#374151', marginTop: 4 }}>
-                    ALL = แจ้งเตือนจากทุก agent / เลือกเฉพาะ = แจ้งเตือนเฉพาะ agent ที่เลือก
+                    {t('sys_notify_all_agents_hint')}
                   </div>
                 </div>
               </div>
@@ -721,7 +950,7 @@ export default function SystemPage() {
                 className="font-orbitron px-4 py-2 rounded transition-all"
                 style={{ fontSize: '9px', background: 'rgba(212,67,107,0.1)', border: '1px solid rgba(212,67,107,0.3)', color: '#E8365D' }}
               >
-                🔔 SEND TEST NOTIFICATION
+                {t('sys_notify_test_btn')}
               </button>
               {testResult && (
                 <span className="font-orbitron" style={{ fontSize: '9px', color: testResult.includes('Sending') ? '#94a3b8' : '#22c55e' }}>
@@ -737,7 +966,7 @@ export default function SystemPage() {
       {tab === 'deploy' && (
         <div className="max-w-3xl space-y-6">
           <div className="font-orbitron mb-2" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>
-            VPS DEPLOY SETTINGS — ตั้งค่าครั้งเดียว ใช้ deploy ทุก project ด้วยปุ่มเดียว
+            {t('sys_deploy_title')} — {t('sys_deploy_subtitle')}
           </div>
 
           {/* Connection Settings */}
@@ -918,7 +1147,7 @@ export default function SystemPage() {
 
             {deployProjects.length === 0 && (
               <div className="rounded-lg p-4 text-center" style={{ background: '#0F0B0D', border: '1px solid #2A1622' }}>
-                <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151' }}>ยังไม่มี Projects — ไปสร้างที่ Projects menu ก่อน</div>
+                <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151' }}>{t('sys_deploy_no_projects')}</div>
               </div>
             )}
 
@@ -991,7 +1220,7 @@ export default function SystemPage() {
               className="font-orbitron px-5 py-2.5 rounded-lg font-semibold transition-all"
               style={{ fontSize: '11px', letterSpacing: '0.05em', background: 'rgba(212,67,107,0.15)', border: '1px solid rgba(212,67,107,0.3)', color: '#E8365D' }}
             >
-              {deploySaving ? '⏳ SAVING...' : deploySaved ? '✅ SAVED!' : '💾 SAVE SETTINGS'}
+              {deploySaving ? t('sys_deploy_saving') : deploySaved ? t('sys_deploy_saved') : t('sys_deploy_save_btn')}
             </button>
             <button
               onClick={testDeployConnection}
@@ -1005,7 +1234,7 @@ export default function SystemPage() {
                 cursor: deployConfig.host ? 'pointer' : 'not-allowed',
               }}
             >
-              {deployTesting ? '⏳ CONNECTING...' : '🔌 TEST CONNECTION'}
+              {deployTesting ? t('sys_deploy_testing') : t('sys_deploy_test_btn')}
             </button>
           </div>
 
@@ -1021,7 +1250,7 @@ export default function SystemPage() {
               {deployTestResult.ok ? (
                 <div className="space-y-2">
                   <div className="font-orbitron font-bold flex items-center gap-2" style={{ fontSize: '12px', color: '#22c55e' }}>
-                    ✅ CONNECTION SUCCESSFUL
+                    {t('sys_deploy_success')}
                   </div>
                   <div className="font-mono text-xs space-y-1" style={{ color: '#94a3b8' }}>
                     <div><span style={{ color: '#4a5568' }}>OS:</span> {deployTestResult.uname}</div>
@@ -1033,11 +1262,11 @@ export default function SystemPage() {
               ) : (
                 <div className="space-y-2">
                   <div className="font-orbitron font-bold flex items-center gap-2" style={{ fontSize: '12px', color: '#ef4444' }}>
-                    ❌ CONNECTION FAILED
+                    {t('sys_deploy_failed')}
                   </div>
                   <div className="font-mono text-xs" style={{ color: '#f87171' }}>{deployTestResult.error}</div>
                   <div style={{ fontSize: '9px', color: '#4a5568', marginTop: 4 }}>
-                    ตรวจสอบ: IP ถูกต้อง? Auth method ถูกต้อง? Port 22 เปิดอยู่? VPS firewall อนุญาต SSH?
+                    {t('sys_deploy_check_hint')}
                   </div>
                 </div>
               )}
@@ -1046,7 +1275,7 @@ export default function SystemPage() {
 
           {/* DNS Reminder */}
           <div className="rounded-xl p-4" style={{ background: '#0F0B0D', border: '1px dashed #2E1E27' }}>
-            <div className="font-orbitron mb-2" style={{ fontSize: '9px', color: '#f59e0b', letterSpacing: '0.08em' }}>⚠️ CLOUDFLARE DNS — ตั้งค่าครั้งเดียว</div>
+            <div className="font-orbitron mb-2" style={{ fontSize: '9px', color: '#f59e0b', letterSpacing: '0.08em' }}>{t('sys_deploy_cloudflare_dns')}</div>
             <div className="font-mono text-xs space-y-1" style={{ color: '#64748b' }}>
               <div>1. Cloudflare Dashboard → DNS → Add Record</div>
               <div>2. <span style={{ color: '#E8365D' }}>A</span> | <span style={{ color: '#E8365D' }}>@</span> | <span style={{ color: '#22c55e' }}>{deployConfig.host || '<VPS_IP>'}</span> | Proxy 🟠</div>
@@ -1064,7 +1293,7 @@ export default function SystemPage() {
           <div className="rounded-lg p-5" style={{ background: '#181218', border: '1px solid #1a2030' }}>
             <div className="flex items-center gap-3 mb-3">
               <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: '#22c55e', boxShadow: '0 0 8px #22c55e' }} />
-              <span className="font-orbitron font-bold text-white" style={{ fontSize: '13px', letterSpacing: '0.08em' }}>SYSTEM ONLINE</span>
+              <span className="font-orbitron font-bold text-white" style={{ fontSize: '13px', letterSpacing: '0.08em' }}>{t('sys_info_online')}</span>
             </div>
             <div className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.05em' }}>
               CLAUDE GANK COMMAND CENTER v1.0.0 | POWERED BY ANTHROPIC CLAUDE
@@ -1082,7 +1311,7 @@ export default function SystemPage() {
                   <label className="font-orbitron" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>PATH TO CLAUDE EXECUTABLE</label>
                   {claudePathAutoDetected && (
                     <span className="font-orbitron rounded px-1.5 py-0.5" style={{ fontSize: '7px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#22c55e' }}>
-                      ⚡ AUTO DETECTED
+                      {t('sys_info_auto_detected')}
                     </span>
                   )}
                 </div>
@@ -1108,11 +1337,11 @@ export default function SystemPage() {
                     className="font-orbitron px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
                     style={{ fontSize: '10px', letterSpacing: '0.05em', background: 'rgba(212,67,107,0.12)', border: '1px solid rgba(212,67,107,0.25)', color: '#E8365D' }}
                   >
-                    {claudePathSaving ? '⏳...' : '💾 SAVE & TEST'}
+                    {claudePathSaving ? t('sys_info_saving') : t('sys_info_save_test')}
                   </button>
                 </div>
                 <div className="mt-1.5" style={{ fontSize: '8px', color: '#374151' }}>
-                  หา path ได้ด้วย <span className="font-mono px-1 rounded" style={{ background: '#0F0B0D', color: '#E8365D' }}>which claude</span> ในเครื่อง
+                  {t('sys_info_which_claude')} <span className="font-mono px-1 rounded" style={{ background: '#0F0B0D', color: '#E8365D' }}>which claude</span>
                 </div>
               </div>
 
@@ -1125,6 +1354,62 @@ export default function SystemPage() {
                   ) : (
                     <div className="font-mono text-xs" style={{ color: '#ef4444' }}>
                       ❌ {claudePathResult.error || claudePathResult.version}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Projects Base Path */}
+          <div className="rounded-xl p-5 space-y-4" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
+            <div className="font-orbitron font-bold text-white flex items-center gap-2" style={{ fontSize: '12px', letterSpacing: '0.05em' }}>
+              <span style={{ color: '#E8365D' }}>📁</span> PROJECTS BASE PATH
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="font-orbitron block mb-1.5" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>
+                  PATH TO PROJECTS DIRECTORY
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={projectsBasePath}
+                    onChange={e => { setProjectsBasePath(e.target.value); setProjectsPathResult(null) }}
+                    placeholder="/Users/you/projects"
+                    className="flex-1 rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                    style={{ background: '#0F0B0D', border: '1px solid #2A1622' }}
+                  />
+                  <button
+                    disabled={projectsPathSaving}
+                    onClick={async () => {
+                      setProjectsPathSaving(true)
+                      setProjectsPathResult(null)
+                      const res = await fetch('/api/system/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projects_base_path: projectsBasePath }) })
+                      const data = await res.json()
+                      setProjectsPathResult(data)
+                      setProjectsPathSaving(false)
+                    }}
+                    className="font-orbitron px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
+                    style={{ fontSize: '10px', letterSpacing: '0.05em', background: 'rgba(212,67,107,0.12)', border: '1px solid rgba(212,67,107,0.25)', color: '#E8365D' }}
+                  >
+                    {projectsPathSaving ? 'SAVING...' : 'SAVE'}
+                  </button>
+                </div>
+                <div className="mt-1.5" style={{ fontSize: '8px', color: '#374151' }}>
+                  Root directory where all projects will be created. e.g.{' '}
+                  <span className="font-mono px-1 rounded" style={{ background: '#0F0B0D', color: '#E8365D' }}>/Users/you/projects</span>
+                </div>
+              </div>
+              {projectsPathResult && (
+                <div className="rounded-lg px-3 py-2" style={{ background: projectsPathResult.ok ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${projectsPathResult.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                  {projectsPathResult.ok ? (
+                    <div className="font-mono text-xs" style={{ color: '#22c55e' }}>
+                      ✅ {projectsPathResult.cleared ? 'Cleared' : `Saved: ${projectsPathResult.path}`}
+                    </div>
+                  ) : (
+                    <div className="font-mono text-xs" style={{ color: '#ef4444' }}>
+                      ❌ {projectsPathResult.error}
                     </div>
                   )}
                 </div>
@@ -1168,11 +1453,11 @@ export default function SystemPage() {
                   className="font-orbitron px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
                   style={{ fontSize: '10px', letterSpacing: '0.05em', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)', color: '#fbbf24' }}
                 >
-                  {ollamaSaving ? '⏳...' : '🔌 CONNECT'}
+                  {ollamaSaving ? t('sys_info_saving') : t('sys_info_connect')}
                 </button>
               </div>
               <div className="mt-1.5" style={{ fontSize: '8px', color: '#374151' }}>
-                ติดตั้ง Ollama แล้วรัน <span className="font-mono px-1 rounded" style={{ background: '#0F0B0D', color: '#fbbf24' }}>ollama serve</span> ก่อน จากนั้น pull model เช่น <span className="font-mono px-1 rounded" style={{ background: '#0F0B0D', color: '#fbbf24' }}>ollama pull qwen3:8b</span>
+                {t('sys_info_ollama_install')} <span className="font-mono px-1 rounded" style={{ background: '#0F0B0D', color: '#fbbf24' }}>ollama serve</span> then pull: <span className="font-mono px-1 rounded" style={{ background: '#0F0B0D', color: '#fbbf24' }}>ollama pull qwen3:8b</span>
               </div>
             </div>
 
@@ -1190,7 +1475,7 @@ export default function SystemPage() {
 
             {ollamaModels.length > 0 && (
               <div>
-                <div className="font-orbitron mb-2" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>AVAILABLE MODELS — เลือกให้ Agent ได้ใน AGENTS tab</div>
+                <div className="font-orbitron mb-2" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>{t('sys_info_ollama_models_tab')}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {ollamaModels.map(m => (
                     <span key={m} className="font-mono rounded px-2 py-1" style={{ fontSize: '10px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', color: '#fbbf24' }}>
@@ -1199,7 +1484,7 @@ export default function SystemPage() {
                   ))}
                 </div>
                 <div className="mt-2" style={{ fontSize: '8px', color: '#374151' }}>
-                  ไปที่ <span style={{ color: '#fbbf24' }}>AGENTS tab</span> → เลือก Agent → เปลี่ยน MODEL dropdown เป็น Ollama (Local) section
+                  {t('sys_info_available_models_hint')}
                 </div>
               </div>
             )}
@@ -1280,7 +1565,7 @@ export default function SystemPage() {
                     className="font-orbitron px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
                     style={{ fontSize: '10px', letterSpacing: '0.05em', background: 'rgba(45,127,255,0.12)', border: '1px solid rgba(45,127,255,0.25)', color: '#2d7fff' }}
                   >
-                    {jiraSaving ? '⏳...' : '🔗 SAVE & TEST'}
+                    {jiraSaving ? t('sys_info_saving') : t('sys_info_save_jira')}
                   </button>
                 </div>
               </div>
@@ -1290,7 +1575,7 @@ export default function SystemPage() {
               <div className="rounded-lg px-3 py-2" style={{ background: jiraResult.ok ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${jiraResult.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
                 {jiraResult.ok ? (
                   <div className="font-mono text-xs" style={{ color: '#22c55e' }}>
-                    {jiraResult.cleared ? '✅ Jira credentials cleared' : `✅ Connected as ${jiraResult.display_name}`}
+                    {jiraResult.cleared ? t('sys_info_jira_cleared') : `✅ Connected as ${jiraResult.display_name}`}
                   </div>
                 ) : (
                   <div className="font-mono text-xs" style={{ color: '#ef4444' }}>❌ {jiraResult.error}</div>
@@ -1339,7 +1624,7 @@ export default function SystemPage() {
                   className="font-orbitron text-blue-400 hover:text-blue-300 transition-colors"
                   style={{ fontSize: '8px' }}
                 >
-                  ดูวิธีสร้าง token →
+                  {t('sys_info_figma_how_to_create')}
                 </a>
                 <button
                   disabled={figmaSaving}
@@ -1358,7 +1643,7 @@ export default function SystemPage() {
                   className="font-orbitron px-3 py-1.5 rounded-lg transition-all"
                   style={{ fontSize: '9px', background: figmaSaving ? '#1a0d20' : '#2d0a3d', border: '1px solid #7c3aed50', color: figmaSaving ? '#6b7280' : '#a78bfa', cursor: figmaSaving ? 'not-allowed' : 'pointer', letterSpacing: '0.05em' }}
                 >
-                  {figmaSaving ? '⏳...' : '🎨 SAVE & TEST'}
+                  {figmaSaving ? t('sys_info_saving') : t('sys_info_save_figma')}
                 </button>
               </div>
 
@@ -1366,7 +1651,7 @@ export default function SystemPage() {
                 <div className="rounded-lg px-3 py-2" style={{ background: figmaResult.ok ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${figmaResult.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
                   {figmaResult.ok ? (
                     <div className="font-mono text-xs" style={{ color: '#22c55e' }}>
-                      {figmaResult.cleared ? '✅ Figma token cleared' : `✅ Connected as ${figmaResult.display_name} (${figmaResult.email})`}
+                      {figmaResult.cleared ? t('sys_info_figma_cleared') : `✅ Connected as ${figmaResult.display_name} (${figmaResult.email})`}
                     </div>
                   ) : (
                     <div className="font-mono text-xs" style={{ color: '#ef4444' }}>❌ {figmaResult.error}</div>
@@ -1383,7 +1668,118 @@ export default function SystemPage() {
                   <div style={{ color: '#64748b' }}>{`  "args": ["-y", "@figma/mcp-server"],`}</div>
                   <div style={{ color: '#64748b' }}>{`  "env": { "FIGMA_ACCESS_TOKEN": "..." }`}</div>
                   <div style={{ color: '#64748b' }}>{`}`}</div>
-                  <div className="mt-1.5" style={{ color: '#374151' }}>รีสตาร์ท Claude Code เพื่อให้ MCP มีผล</div>
+                  <div className="mt-1.5" style={{ color: '#374151' }}>{t('sys_info_mcp_restart')}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Microsoft SSO */}
+          <div className="rounded-xl p-5 space-y-4" style={{ background: '#181218', border: '1px solid #2E1E27' }}>
+            <div className="font-orbitron font-bold text-white flex items-center gap-2" style={{ fontSize: '12px', letterSpacing: '0.05em' }}>
+              <span style={{ color: '#00A4EF' }}>🔷</span> MICROSOFT SSO (Azure AD / Entra ID)
+              <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '7px', background: msSsoConfigured ? 'rgba(34,197,94,0.1)' : 'rgba(100,116,139,0.1)', border: `1px solid ${msSsoConfigured ? 'rgba(34,197,94,0.25)' : 'rgba(100,116,139,0.2)'}`, color: msSsoConfigured ? '#22c55e' : '#64748b' }}>
+                {msSsoConfigured ? (msSsoEnvEnabled ? '● ACTIVE' : '● CONFIGURED') : '● NOT SET'}
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>TENANT ID</label>
+                <input
+                  type="text"
+                  value={msTenantId}
+                  onChange={e => { setMsTenantId(e.target.value); setMsResult(null) }}
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                  style={{ background: '#0F0B0D', border: '1px solid #2A1622' }}
+                />
+                <div className="mt-1" style={{ fontSize: '8px', color: '#374151' }}>
+                  Azure Portal → Microsoft Entra ID → Overview → Directory (tenant) ID
+                </div>
+              </div>
+              <div>
+                <label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>CLIENT ID (Application ID)</label>
+                <input
+                  type="text"
+                  value={msClientId}
+                  onChange={e => { setMsClientId(e.target.value); setMsResult(null) }}
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  className="w-full rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                  style={{ background: '#0F0B0D', border: '1px solid #2A1622' }}
+                />
+              </div>
+              <div>
+                <label className="font-orbitron block mb-1" style={{ fontSize: '8px', color: '#64748b', letterSpacing: '0.08em' }}>CLIENT SECRET</label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={msClientSecret}
+                    onChange={e => { setMsClientSecret(e.target.value); setMsResult(null) }}
+                    placeholder={msSsoConfigured ? '••••••••••••••• (configured)' : 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'}
+                    className="flex-1 rounded px-3 py-2 font-mono text-sm text-white placeholder-gray-600 focus:outline-none"
+                    style={{ background: '#0F0B0D', border: '1px solid #2A1622' }}
+                  />
+                  <button
+                    disabled={msSaving}
+                    onClick={async () => {
+                      setMsSaving(true)
+                      setMsResult(null)
+                      const res = await fetch('/api/system/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ms_tenant_id: msTenantId, ms_client_id: msClientId, ms_client_secret: msClientSecret }),
+                      })
+                      const data = await res.json()
+                      setMsResult(data)
+                      if (data.ok && !data.cleared) { setMsSsoConfigured(true); setMsClientSecret('') }
+                      if (data.cleared) setMsSsoConfigured(false)
+                      setMsSaving(false)
+                    }}
+                    className="font-orbitron px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
+                    style={{ fontSize: '10px', letterSpacing: '0.05em', background: 'rgba(0,164,239,0.12)', border: '1px solid rgba(0,164,239,0.3)', color: '#00A4EF' }}
+                  >
+                    {msSaving ? t('sys_info_saving') : t('sys_info_save_ms')}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {msResult && (
+              <div className="rounded-lg px-3 py-2" style={{ background: msResult.ok ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${msResult.ok ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                <div className="font-mono text-xs" style={{ color: msResult.ok ? '#22c55e' : '#ef4444' }}>
+                  {msResult.ok ? `✅ ${msResult.cleared ? t('sys_info_sso_cleared') : msResult.message}` : `❌ ${msResult.error}`}
+                </div>
+              </div>
+            )}
+
+            {/* Redirect URI instruction */}
+            <div className="rounded-lg p-3 space-y-2" style={{ background: '#0F0B0D', border: '1px dashed #2A1622' }}>
+              <div className="font-orbitron mb-1" style={{ fontSize: '8px', color: '#374151', letterSpacing: '0.05em' }}>AZURE AD APP REGISTRATION</div>
+              <div className="font-mono" style={{ fontSize: '9px', color: '#4b5563' }}>
+                <div>1. Azure Portal → App registrations → New registration</div>
+                <div>2. Redirect URI (Web):</div>
+                <div className="mt-1 px-2 py-1 rounded" style={{ background: '#181218', color: '#00A4EF' }}>
+                  {'{YOUR_DOMAIN}'}/api/auth/callback/azure-ad
+                </div>
+                <div className="mt-1">   local: <span style={{ color: '#00A4EF' }}>http://localhost:9001/api/auth/callback/azure-ad</span></div>
+                <div>3. Certificates &amp; secrets → New client secret → copy value</div>
+                <div>4. API permissions → add <span style={{ color: '#a78bfa' }}>User.Read</span> → Grant admin consent</div>
+              </div>
+            </div>
+
+            {/* Enable enforcement */}
+            <div className="rounded-lg p-3 space-y-1.5" style={{ background: '#0F0B0D', border: '1px dashed #2A1622' }}>
+              <div className="font-orbitron mb-1" style={{ fontSize: '8px', color: '#374151', letterSpacing: '0.05em' }}>ENABLE SSO PROTECTION</div>
+              <div className="font-mono space-y-1" style={{ fontSize: '9px', color: '#4b5563' }}>
+                <div>เพิ่มใน <span style={{ color: '#fbbf24' }}>.env.local</span> แล้ว restart server:</div>
+                <div className="px-2 py-1 rounded mt-1" style={{ background: '#181218' }}>
+                  <div><span style={{ color: '#22c55e' }}>NEXTAUTH_SECRET</span>=<span style={{ color: '#c4bfe8' }}>{'<random-secret>'}</span></div>
+                  <div><span style={{ color: '#22c55e' }}>NEXTAUTH_URL</span>=<span style={{ color: '#c4bfe8' }}>{'<your-app-url>'}</span></div>
+                  <div><span style={{ color: '#22c55e' }}>MS_SSO_ENABLED</span>=<span style={{ color: '#E8365D' }}>1</span></div>
+                </div>
+                <div className="mt-1" style={{ color: msSsoEnvEnabled ? '#22c55e' : '#374151' }}>
+                  {msSsoEnvEnabled ? '● MS_SSO_ENABLED=1 ตั้งค่าแล้ว — SSO บังคับใช้งาน' : '○ MS_SSO_ENABLED ยังไม่ได้ตั้งค่า — app เปิดใช้งานปกติ (ไม่บังคับ login)'}
                 </div>
               </div>
             </div>

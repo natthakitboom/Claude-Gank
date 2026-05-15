@@ -1,9 +1,9 @@
 ---
 name: add-i18n
-description: Use this skill when adding new translation keys to the Claude Gang i18n system. Trigger when user wants to add new text labels, page titles, button text, or any UI copy that needs Thai/English support.
+description: Use this skill when adding new translation keys to the MI Gang i18n system. Trigger when user wants to add new text labels, page titles, button text, or any UI copy that needs Thai/English support.
 ---
 
-# Add i18n Key Skill — Claude Gang
+# Add i18n Key Skill — MI Gang
 
 เพิ่ม translation keys ใน `src/lib/i18n.tsx` — ต้องเพิ่มทั้ง EN และ TH พร้อมกันเสมอ
 

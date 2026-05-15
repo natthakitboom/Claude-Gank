@@ -252,7 +252,8 @@ echo ""
 echo "  ขั้นตอนต่อไป:"
 echo "  1. เปิด Claude Team Gang.app จาก /Applications"
 echo "  2. ตั้งค่า Claude CLI path ใน System → System Info"
-echo "  3. รัน: claude auth  (login ครั้งแรก)"
+echo "  3. ตั้งค่า Projects Base Path ใน System → System Info"
+echo "  4. รัน: claude auth  (login ครั้งแรก)"
 echo ""
 
 sleep 2

@@ -31,7 +31,7 @@ export async function POST() {
 
       try {
         send('━━━━━━━━━━━━━━━━━━━━━━━━')
-        send('🚀 Claude Gang — Update')
+        send('🚀 MII Gang — Update')
         send('━━━━━━━━━━━━━━━━━━━━━━━━')
 
         // 1. Fetch
@@ -107,7 +107,7 @@ export async function POST() {
         // Try PM2
         if (!restarted) {
           try {
-            execSync('pm2 restart claude-gang 2>/dev/null', { timeout: 5000 })
+            execSync('pm2 restart mi-gang 2>/dev/null', { timeout: 5000 })
             send('✅ Restart ผ่าน PM2 สำเร็จ')
             restarted = true
           } catch {}

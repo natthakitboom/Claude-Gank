@@ -37,7 +37,7 @@ interface MissionStatus {
 }
 
 export default function CommsPage() {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const [agents, setAgents] = useState<Agent[]>([])
   const [messages, setMessages] = useState<MessageRow[]>([])
   const [missionStatuses, setMissionStatuses] = useState<Record<string, MissionStatus>>({})
@@ -232,7 +232,7 @@ export default function CommsPage() {
                 ? { background: 'rgba(212,67,107,0.1)', border: '1px solid #E8365D33' }
                 : { background: '#0F0B0D', border: '1px solid #2A1622' }}>
               <PixelSprite agentId={a.id} size={14} />
-              <span className="text-xs" style={{ color: filterAgent === a.id ? '#e2e8f0' : '#4b5563', fontSize: '10px' }}>{a.name}</span>
+              <span className="text-xs" style={{ color: filterAgent === a.id ? '#e2e8f0' : '#4b5563', fontSize: '10px' }}>{lang === 'EN' && a.name_en ? a.name_en : a.name}</span>
             </button>
           ))}
 
@@ -397,14 +397,14 @@ export default function CommsPage() {
                 <div>
                   <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>FROM AGENT</label>
                   <select value={form.from_agent} onChange={e => setForm(f => ({ ...f, from_agent: e.target.value }))} className="gank-input">
-                    {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {agents.map(a => <option key={a.id} value={a.id}>{lang === 'EN' && a.name_en ? a.name_en : a.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>TO AGENT</label>
                   <select value={form.to_agent} onChange={e => setForm(f => ({ ...f, to_agent: e.target.value }))} className="gank-input">
                     <option value="">BROADCAST ALL</option>
-                    {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {agents.map(a => <option key={a.id} value={a.id}>{lang === 'EN' && a.name_en ? a.name_en : a.name}</option>)}
                   </select>
                 </div>
               </div>

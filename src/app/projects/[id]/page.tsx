@@ -17,7 +17,7 @@ const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false,
 interface FileNode { name: string; path: string; type: 'file' | 'dir'; size?: number; children?: FileNode[]; skipped?: boolean }
 interface Project { id: string; name: string; description: string; work_dir: string; docker_compose_path: string; mission_id: string }
 interface Agent { id: string; name: string; role: string; team: string; color: string }
-interface ChatMsg { role: 'user' | 'agent'; text: string; agentName?: string }
+interface ChatMsg { role: 'user' | 'agent'; text: string; agentName?: string; currentTool?: string }
 
 // ─── Language detection ──────────────────────────────────────────────────────
 function langFromPath(p: string) {
@@ -194,6 +194,7 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
   const [chat, setChat] = useState<ChatMsg[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [activeMission, setActiveMission] = useState<{ id: string; title: string } | null>(null)
   const [panel, setPanel] = useState<'terminal' | 'chat' | 'git' | 'logs'>('terminal')
   const [gitLog, setGitLog] = useState<{ hash: string; fullHash: string; msg: string; date: string; author: string; tags: string[] }[]>([])
   const [gitLoading, setGitLoading] = useState(false)
@@ -232,10 +233,15 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
         || list.find(a => a.team === 'TECH')
       if (senior) setSelectedAgent(senior.id)
     })
-    // โหลด chat history จาก DB + migrate จาก localStorage ถ้ามี
+    // โหลด chat history — localStorage ก่อน (instant) แล้ว sync กับ DB
+    try {
+      const cached = JSON.parse(localStorage.getItem(`live-chat-${params.id}`) || '[]')
+      if (cached.length > 0) setChat(cached)
+    } catch {}
     fetch(`/api/projects/${params.id}/chat`).then(r => r.json()).then(async d => {
       if (d.messages?.length > 0) {
         setChat(d.messages.map((m: any) => ({ role: m.role, text: m.text, agentName: m.agent_name })))
+        localStorage.setItem(`live-chat-${params.id}`, JSON.stringify(d.messages.map((m: any) => ({ role: m.role, text: m.text, agentName: m.agent_name }))))
       } else {
         // Migrate จาก localStorage ถ้ายังมีอยู่
         try {
@@ -257,6 +263,43 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
   }, [chat])
+
+  // ── Persist chat to localStorage (survives navigation) ───────────────────
+  useEffect(() => {
+    if (chat.length > 0) {
+      try { localStorage.setItem(`live-chat-${params.id}`, JSON.stringify(chat)) } catch {}
+    }
+  }, [chat, params.id])
+
+  // ── Poll active mission status when user navigates back ──────────────────
+  useEffect(() => {
+    const wasLoading = localStorage.getItem(`chat-loading-${params.id}`) === 'true'
+    if (!wasLoading) return
+    // Check if there's still a running mission
+    fetch(`/api/missions?project_id=${params.id}&status=in_progress`).then(r => r.json()).then(d => {
+      const running = Array.isArray(d) ? d[0] : d?.missions?.[0]
+      if (running) {
+        setActiveMission({ id: running.id, title: running.title })
+        // Poll until done
+        const poll = setInterval(() => {
+          fetch(`/api/missions/${running.id}`).then(r => r.json()).then(m => {
+            if (m.status !== 'in_progress') {
+              clearInterval(poll)
+              setActiveMission(null)
+              localStorage.removeItem(`chat-loading-${params.id}`)
+              // Reload chat from DB to get final messages
+              fetch(`/api/projects/${params.id}/chat`).then(r => r.json()).then(d => {
+                if (d.messages?.length > 0) setChat(d.messages.map((m: any) => ({ role: m.role, text: m.text, agentName: m.agent_name })))
+              })
+            }
+          })
+        }, 3000)
+        return () => clearInterval(poll)
+      } else {
+        localStorage.removeItem(`chat-loading-${params.id}`)
+      }
+    }).catch(() => localStorage.removeItem(`chat-loading-${params.id}`))
+  }, [params.id])
 
   // ── Vertical resize (bottom panel) ───────────────────────────────────────
   const onVResizeStart = useCallback((e: React.MouseEvent) => {
@@ -386,7 +429,7 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
   }
 
   // ── Stream SSE helper ────────────────────────────────────────────────────
-  async function streamMission(missionId: string, onChunk: (text: string) => void) {
+  async function streamMission(missionId: string, onChunk: (text: string) => void, onTool?: (label: string) => void) {
     const execRes = await fetch(`/api/missions/${missionId}/execute`, { method: 'POST' })
     if (!execRes.body) return ''
     const reader = execRes.body.getReader()
@@ -399,7 +442,11 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
       const lines = partial.split('\n'); partial = lines.pop() || ''
       for (const line of lines) {
         if (line.startsWith('data: ')) {
-          try { const ev = JSON.parse(line.slice(6)); if (ev.type === 'chunk') { full += ev.text; onChunk(full) } } catch {}
+          try {
+            const ev = JSON.parse(line.slice(6))
+            if (ev.type === 'chunk') { full += ev.text; onChunk(full) }
+            else if (ev.type === 'tool' && onTool) { onTool(ev.label) }
+          } catch {}
         }
       }
     }
@@ -413,6 +460,7 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
     const userMsg = chatInput.trim()
     setChatInput('')
     setChatLoading(true)
+    localStorage.setItem(`chat-loading-${params.id}`, 'true')
     setPanel('chat')
     setChat(c => [...c, { role: 'user', text: userMsg }])
     // Save user message to DB
@@ -424,6 +472,9 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
     const isSecretary = agent?.id === 'agent-secretary' || agent?.role?.toLowerCase().includes('coordinator')
     const currentFile = focusedPane === 'right' && splitView ? rightFile : activeFile
 
+    // Collect final outputs to save (avoid double-save via setChat side effects)
+    const agentOutputsToSave: { text: string; agentName: string; agentId: string }[] = []
+
     // Build conversation history (เอาแค่ 10 รอบล่าสุด เพื่อไม่ให้ context บวมเกิน)
     const historyMsgs = chat.slice(-20) // 10 รอบ = 20 messages (user+agent)
     const historyBlock = historyMsgs.length > 0
@@ -434,7 +485,15 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
         ).join('\n\n')}\n\n---\n\n`
       : ''
 
-    const description = `## 📁 Work Directory\nบันทึกไฟล์ทั้งหมดไว้ที่: \`${project?.work_dir}\`\n\n${historyBlock}## งาน (ข้อความล่าสุด)\n${userMsg}${currentFile ? `\n\n## ไฟล์ที่กำลังแก้ไข\n\`${currentFile}\`` : ''}`
+    const dockerDir = project?.docker_compose_path
+      ? project.docker_compose_path.replace(/\/docker-compose[^/]*$/, '')
+      : project?.work_dir
+
+    const dockerInstruction = project?.docker_compose_path
+      ? `\n\n## 🐳 หลังแก้โค้ดเสร็จทุกครั้ง (บังคับ)\nรัน rebuild Docker ให้ครบ 2 คำสั่งนี้ก่อน report เสร็จ:\n\`\`\`bash\ncd ${dockerDir} && docker compose build app && docker compose up -d --force-recreate app\n\`\`\`\nรอจนได้ HTTP 200 จาก curl แล้วค่อย report ว่าเสร็จ`
+      : ''
+
+    const description = `## 📁 Work Directory\nบันทึกไฟล์ทั้งหมดไว้ที่: \`${project?.work_dir}\`\n\n${historyBlock}## งาน (ข้อความล่าสุด)\n${userMsg}${currentFile ? `\n\n## ไฟล์ที่กำลังแก้ไข\n\`${currentFile}\`` : ''}${dockerInstruction}`
 
     try {
       // ── Step 1: สร้าง mission แล้ว stream output ของ agent ที่เลือก ──────
@@ -444,29 +503,38 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
       })
       const mission = await missionRes.json()
 
+      // ── แสดง "กำลังทำงาน..." ทันที ──
+      setChat(c => [...c, { role: 'agent', text: '', agentName: agent?.name, currentTool: '⏳ กำลังเริ่มทำงาน…' }])
+
       let secretaryOutput = ''
       await streamMission(mission.id, text => {
         secretaryOutput = text
         if (isSecretary) {
-          // แสดง "เลขากำลังวิเคราะห์..." ขณะรอ
           setChat(c => {
             const last = c[c.length - 1]
-            const preview = `⏳ กำลังวิเคราะห์และมอบหมายงาน…`
-            if (last?.role === 'agent') return [...c.slice(0, -1), { ...last, text: preview }]
-            return [...c, { role: 'agent', text: preview, agentName: agent?.name }]
+            if (last?.role === 'agent') return [...c.slice(0, -1), { ...last, currentTool: '⏳ กำลังวิเคราะห์และมอบหมายงาน…' }]
+            return [...c, { role: 'agent', text: '', agentName: agent?.name, currentTool: '⏳ กำลังวิเคราะห์และมอบหมายงาน…' }]
           })
         } else {
           setChat(c => {
             const last = c[c.length - 1]
-            if (last?.role === 'agent') return [...c.slice(0, -1), { ...last, text }]
+            if (last?.role === 'agent') return [...c.slice(0, -1), { ...last, text, currentTool: undefined }]
             return [...c, { role: 'agent', text, agentName: agent?.name }]
           })
         }
+      }, label => {
+        setChat(c => {
+          const last = c[c.length - 1]
+          if (last?.role === 'agent') return [...c.slice(0, -1), { ...last, currentTool: label }]
+          return [...c, { role: 'agent', text: '', agentName: agent?.name, currentTool: label }]
+        })
       })
 
       // ── Step 2: ถ้าเป็นเลขา ให้ parse ---MINI-TASKS--- แล้ว execute ทุก agent ──
-      if (isSecretary) {
-        type MiniTask = { agent_name: string; title: string; description: string }
+      if (!isSecretary) {
+        if (secretaryOutput) agentOutputsToSave.push({ text: secretaryOutput, agentName: agent?.name || '', agentId: selectedAgent })
+        setChat(c => [...c, { role: 'agent', text: '✅ งานเสร็จแล้วครับ', agentName: agent?.name }])
+      } else {        type MiniTask = { agent_name: string; title: string; description: string }
         const miniMatch = secretaryOutput.match(/---MINI-TASKS---\s*([\s\S]*?)\s*---END---/)
         let tasks: MiniTask[] = []
         if (miniMatch) {
@@ -494,12 +562,13 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
 
             // แจ้งว่า agent ไหนกำลังทำงาน
             setChat(c => [...c, {
-              role: 'agent',
-              text: `⚙️ ${targetAgent.name} กำลังทำงาน…`,
+              role: 'agent' as const,
+              text: '',
               agentName: targetAgent.name,
+              currentTool: '⏳ กำลังเริ่มทำงาน…',
             }])
 
-            const subDesc = `${task.description}\n\n## 📁 Work Directory\nบันทึกไฟล์ทั้งหมดไว้ที่: \`${project?.work_dir}\`${currentFile ? `\n\n## ไฟล์ที่กำลังแก้ไข\n\`${currentFile}\`` : ''}`
+            const subDesc = `${task.description}\n\n## 📁 Work Directory\nบันทึกไฟล์ทั้งหมดไว้ที่: \`${project?.work_dir}\`${currentFile ? `\n\n## ไฟล์ที่กำลังแก้ไข\n\`${currentFile}\`` : ''}${dockerInstruction}`
             const subMissionRes = await fetch('/api/missions', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -515,15 +584,23 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
             let subOutput = ''
             await streamMission(subMission.id, text => {
               subOutput = text
-              // อัพเดทข้อความของ agent นี้ใน chat (ล่าสุด)
               setChat(c => {
                 const idx = [...c].reverse().findIndex(m => m.role === 'agent' && m.agentName === targetAgent.name)
                 if (idx === -1) return [...c, { role: 'agent', text, agentName: targetAgent.name }]
                 const realIdx = c.length - 1 - idx
                 return [...c.slice(0, realIdx), { ...c[realIdx], text }, ...c.slice(realIdx + 1)]
               })
+            }, label => {
+              setChat(c => {
+                const idx = [...c].reverse().findIndex(m => m.role === 'agent' && m.agentName === targetAgent.name)
+                if (idx === -1) return [...c, { role: 'agent', text: '', agentName: targetAgent.name, currentTool: label }]
+                const realIdx = c.length - 1 - idx
+                return [...c.slice(0, realIdx), { ...c[realIdx], currentTool: label }, ...c.slice(realIdx + 1)]
+              })
             })
-            if (!subOutput) {
+            if (subOutput) {
+              agentOutputsToSave.push({ text: subOutput, agentName: targetAgent.name, agentId: targetAgent.id })
+            } else {
               setChat(c => {
                 const idx = [...c].reverse().findIndex(m => m.role === 'agent' && m.agentName === targetAgent.name)
                 const realIdx = c.length - 1 - idx
@@ -533,28 +610,32 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
           }
         } else {
           // parse ไม่ได้ — แสดง output เลขาตรงๆ
+          if (secretaryOutput) agentOutputsToSave.push({ text: secretaryOutput, agentName: agent?.name || '', agentId: selectedAgent })
           setChat(c => {
             const last = c[c.length - 1]
             if (last?.role === 'agent') return [...c.slice(0, -1), { ...last, text: secretaryOutput || '(ไม่มี output)' }]
             return [...c, { role: 'agent', text: secretaryOutput || '(ไม่มี output)', agentName: agent?.name }]
           })
         }
+
+        // ── แจ้งเสร็จ ──
+        setChat(c => [...c, { role: 'agent', text: '✅ งานเสร็จแล้วครับ', agentName: agent?.name }])
       }
     } catch (err) {
-      setChat(c => [...c, { role: 'agent', text: `เกิดข้อผิดพลาด: ${String(err)}`, agentName: agent?.name }])
+      setChat(c => [...c, { role: 'agent', text: `❌ เกิดข้อผิดพลาด: ${String(err)}`, agentName: agent?.name }])
     }
 
-    // Save agent responses to DB — อ่าน chat state ล่าสุดหลัง stream เสร็จ
-    setChat(c => {
-      const agentMsgs = c.filter(m => m.role === 'agent').slice(-(isSecretary ? 5 : 1))
+    // Save agent outputs to DB (once, from collected outputs — not from chat state)
+    if (agentOutputsToSave.length > 0) {
       fetch(`/api/projects/${params.id}/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(agentMsgs.map(m => ({ role: m.role, text: m.text, agent_name: m.agentName, agent_id: selectedAgent }))),
+        body: JSON.stringify(agentOutputsToSave.map(m => ({ role: 'agent', text: m.text, agent_name: m.agentName, agent_id: m.agentId }))),
       }).catch(() => {})
-      return c
-    })
+    }
 
     setChatLoading(false)
+    setActiveMission(null)
+    localStorage.removeItem(`chat-loading-${params.id}`)
     setTimeout(refreshTree, 2000)
   }
 
@@ -782,6 +863,14 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
                   )}
                 </div>
                 <div ref={chatRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2" style={{ background: '#070b10' }}>
+                  {activeMission && (
+                    <div className="rounded-lg px-3 py-2 flex items-center gap-2 animate-pulse" style={{ background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)' }}>
+                      <Loader2 size={10} className="animate-spin flex-shrink-0" style={{ color: '#4ade80' }} />
+                      <div style={{ fontSize: '9px', color: '#4ade80', fontFamily: 'monospace' }}>
+                        กำลังทำงาน: {activeMission.title}
+                      </div>
+                    </div>
+                  )}
                   {chat.length === 0 && (() => {
                     const sel = agents.find(a => a.id === selectedAgent)
                     const isFast = sel?.id === 'agent-coder'
@@ -814,6 +903,9 @@ export default function ProjectIDE({ params }: { params: { id: string } }) {
                           color: m.role === 'user' ? '#93c5fd' : '#94a3b8', fontSize: '11px',
                         }}>
                         {m.agentName && <div className="font-orbitron mb-1" style={{ fontSize: '9px', color: '#D4436B' }}>{m.agentName}</div>}
+                        {m.currentTool && (
+                          <div className="font-mono animate-pulse mb-1" style={{ fontSize: '9px', color: '#4ade80' }}>{m.currentTool}</div>
+                        )}
                         {m.text}
                       </div>
                     </div>

@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 export const dynamic = 'force-dynamic'
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 9001}`
 
 export async function GET() {
   const db = getDb()
@@ -85,6 +85,36 @@ export async function GET() {
     console.log(`[scheduler/orphan] ✅ Rescued ${orphaned.length} orphaned phase mission(s)`)
   }
 
+  // 4. Stuck pending rescue
+  //    Sub-missions (parent_mission_id set): rescue after 30s — they should fire immediately after phase advance
+  //    Standalone missions (no parent): rescue after 3 minutes
+  const stuckPending = db.prepare(`
+    SELECT m.id, m.title, m.phase, m.parent_mission_id
+    FROM missions m
+    WHERE m.status = 'pending'
+      AND m.scheduled_at IS NULL
+      AND m.started_at IS NULL
+      AND (
+        (m.parent_mission_id IS NOT NULL AND m.created_at <= datetime('now', '-30 seconds'))
+        OR
+        (m.parent_mission_id IS NULL AND m.created_at <= datetime('now', '-3 minutes'))
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM missions sib
+        WHERE sib.parent_mission_id = m.parent_mission_id
+          AND sib.status = 'running'
+      )
+  `).all() as { id: string; title: string; phase: number | null; parent_mission_id: string | null }[]
+
+  for (const m of stuckPending) {
+    console.log(`[scheduler/stuck] 🔄 Re-firing stuck pending: "${m.title.slice(0, 50)}"`)
+    fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
+      .catch((e) => console.error(`[scheduler/stuck] re-fire failed for ${m.id}:`, e.message))
+  }
+  if (stuckPending.length > 0) {
+    console.log(`[scheduler/stuck] ✅ Re-fired ${stuckPending.length} stuck pending mission(s)`)
+  }
+
   // Upcoming one-time scheduled missions
   const upcoming = db.prepare(`
     SELECT m.*, a.name as agent_name, a.team as agent_team
@@ -95,5 +125,5 @@ export async function GET() {
     ORDER BY m.scheduled_at ASC
   `).all()
 
-  return NextResponse.json({ fired: due.length + dueJobs.length, upcoming, due })
+  return NextResponse.json({ fired: due.length + dueJobs.length, rescued_orphans: orphaned.length, rescued_stuck: stuckPending.length, upcoming, due })
 }

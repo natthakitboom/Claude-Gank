@@ -28,7 +28,7 @@ async function sendLINE(config: NotifyConfig, message: string, title?: string, a
 
   const now = new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
   const divider = '━━━━━━━━━━━━━━━'
-  const header = `🤖 Claude Gank\n${divider}\n${agentName ? `👤 Agent: ${agentName}\n` : ''}${title ? `📋 ${title}\n` : ''}${divider}`
+  const header = `🤖 MII Gang\n${divider}\n${agentName ? `👤 Agent: ${agentName}\n` : ''}${title ? `📋 ${title}\n` : ''}${divider}`
   const footer = `${divider}\n🕐 ${now}`
   const maxMsgLen = 4800 - header.length - footer.length // LINE limit 5000 per message
   const text = `${header}\n${message.slice(0, maxMsgLen)}\n${footer}`
@@ -115,7 +115,7 @@ async function sendTeams(config: NotifyConfig, message: string, title?: string, 
                 items: [
                   {
                     type: 'TextBlock',
-                    text: `Claude Gank`,
+                    text: `MII Gang`,
                     weight: 'Bolder',
                     size: 'Medium',
                     spacing: 'None',
@@ -181,7 +181,7 @@ async function sendTeams(config: NotifyConfig, message: string, title?: string, 
                 width: 'auto',
                 items: [{
                   type: 'TextBlock',
-                  text: 'Claude Gank Dashboard',
+                  text: 'MII Gang Dashboard',
                   size: 'Small',
                   isSubtle: true,
                   horizontalAlignment: 'Right',

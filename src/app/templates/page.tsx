@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { LayoutTemplate, Plus, Pencil, Trash2, ImageOff, Loader2, X, Check } from 'lucide-react'
+import { LayoutTemplate, Plus, Pencil, Trash2, ImageOff, Loader2, X, Check, Wand2, Layers, Eye, EyeOff } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -14,19 +15,27 @@ interface Template {
   figma_node_id: string
   figma_thumbnail_url: string
   figma_design_context: string
+  mcp_url: string
   system_prompt_extra: string
   tags_json: string
   created_at: string
+  ms_tenant_id: string
+  ms_client_id: string
+  ms_client_secret: string
 }
 
 interface TemplateForm {
   name: string
   description: string
   tech_stack: string
+  has_figma: boolean
   figma_url: string
   figma_design_context: string
   system_prompt_extra: string
   tags: string
+  ms_tenant_id: string
+  ms_client_id: string
+  ms_client_secret: string
 }
 
 interface FigmaPreview {
@@ -41,10 +50,14 @@ const EMPTY_FORM: TemplateForm = {
   name: '',
   description: '',
   tech_stack: '',
+  has_figma: false,
   figma_url: '',
   figma_design_context: '',
   system_prompt_extra: '',
   tags: '',
+  ms_tenant_id: '',
+  ms_client_id: '',
+  ms_client_secret: '',
 }
 
 function parseTags(tagsJson: string): string[] {
@@ -56,12 +69,15 @@ function formToPayload(form: TemplateForm) {
     name: form.name.trim(),
     description: form.description.trim(),
     tech_stack: form.tech_stack.trim(),
-    figma_url: form.figma_url.trim(),
+    figma_url: form.has_figma ? form.figma_url.trim() : '',
     figma_design_context: form.figma_design_context.trim(),
     system_prompt_extra: form.system_prompt_extra.trim(),
     tags_json: JSON.stringify(
       form.tags.split(',').map(t => t.trim()).filter(Boolean)
     ),
+    ms_tenant_id: form.ms_tenant_id.trim(),
+    ms_client_id: form.ms_client_id.trim(),
+    ms_client_secret: form.ms_client_secret.trim(),
   }
 }
 
@@ -70,10 +86,14 @@ function templateToForm(t: Template): TemplateForm {
     name: t.name,
     description: t.description,
     tech_stack: t.tech_stack,
+    has_figma: !!t.figma_url,
     figma_url: t.figma_url,
     figma_design_context: t.figma_design_context ?? '',
     system_prompt_extra: t.system_prompt_extra,
     tags: parseTags(t.tags_json).join(', '),
+    ms_tenant_id: t.ms_tenant_id ?? '',
+    ms_client_id: t.ms_client_id ?? '',
+    ms_client_secret: t.ms_client_secret ?? '',
   }
 }
 
@@ -108,43 +128,51 @@ function TemplateFormFields({
   figmaPreview,
   fetchingFigma,
   onFetchFigma,
-  tempId,
+  onExtractDesign,
+  extractingDesign,
+  onAiFill,
+  aiFillingContext,
 }: {
   form: TemplateForm
   onChange: (f: TemplateForm) => void
   figmaPreview: FigmaPreview | null
   fetchingFigma: boolean
   onFetchFigma: () => void
-  tempId: string
+  onExtractDesign: () => void
+  extractingDesign: boolean
+  onAiFill: () => void
+  aiFillingContext: boolean
 }) {
+  const { t } = useLanguage()
+  const [showSecret, setShowSecret] = useState(false)
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
       {/* Name — full width */}
       <div style={{ gridColumn: '1 / -1' }}>
-        <label style={labelStyle}>ชื่อเทมเพลต *</label>
+        <label style={labelStyle}>{t('tpl_name_label')}</label>
         <input
           style={inputStyle}
           value={form.name}
           onChange={e => onChange({ ...form, name: e.target.value })}
-          placeholder="เช่น Web App + Auth"
+          placeholder={t('tpl_name_placeholder')}
         />
       </div>
 
       {/* Description — full width */}
       <div style={{ gridColumn: '1 / -1' }}>
-        <label style={labelStyle}>คำอธิบาย</label>
+        <label style={labelStyle}>{t('tpl_desc_label')}</label>
         <textarea
           style={{ ...inputStyle, resize: 'vertical', minHeight: 64 }}
           value={form.description}
           onChange={e => onChange({ ...form, description: e.target.value })}
-          placeholder="อธิบายว่าเทมเพลตนี้เหมาะกับงานแบบไหน"
+          placeholder={t('tpl_desc_placeholder')}
           rows={3}
         />
       </div>
 
       {/* Tech stack */}
       <div>
-        <label style={labelStyle}>Tech Stack</label>
+        <label style={labelStyle}>{t('tpl_tech_stack_label')}</label>
         <input
           style={inputStyle}
           value={form.tech_stack}
@@ -155,7 +183,7 @@ function TemplateFormFields({
 
       {/* Tags */}
       <div>
-        <label style={labelStyle}>Tags (คั่นด้วย ,)</label>
+        <label style={labelStyle}>{t('tpl_tags_label')}</label>
         <input
           style={inputStyle}
           value={form.tags}
@@ -164,52 +192,81 @@ function TemplateFormFields({
         />
       </div>
 
-      {/* Figma URL — full width */}
+      {/* Figma URL — optional, full width */}
       <div style={{ gridColumn: '1 / -1' }}>
-        <label style={labelStyle}>Figma URL (optional)</label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            style={{ ...inputStyle, flex: 1 }}
-            value={form.figma_url}
-            onChange={e => onChange({ ...form, figma_url: e.target.value })}
-            placeholder="https://www.figma.com/design/..."
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <button
             type="button"
-            onClick={onFetchFigma}
-            disabled={!form.figma_url.trim() || fetchingFigma}
+            onClick={() => onChange({ ...form, has_figma: !form.has_figma, figma_url: form.has_figma ? '' : form.figma_url })}
             style={{
-              background: form.figma_url.trim() ? '#1c1830' : '#13101e',
-              border: '1px solid #2d2848',
-              borderRadius: 8,
-              color: form.figma_url.trim() ? '#c4bfe8' : '#374151',
-              padding: '8px 14px',
+              background: form.has_figma ? 'rgba(167,139,250,0.15)' : '#13101e',
+              border: `1px solid ${form.has_figma ? '#a78bfa' : '#2d2848'}`,
+              borderRadius: 7,
+              color: form.has_figma ? '#a78bfa' : '#6b7280',
+              padding: '5px 14px',
               fontSize: 12,
-              cursor: form.figma_url.trim() && !fetchingFigma ? 'pointer' : 'not-allowed',
-              whiteSpace: 'nowrap',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
+              fontWeight: form.has_figma ? 700 : 400,
+              cursor: 'pointer',
             }}
           >
-            {fetchingFigma ? <Loader2 size={13} className="animate-spin" /> : <ImageOff size={13} />}
-            Fetch Preview
+            Figma URL
           </button>
+          {!form.has_figma && <span style={{ fontSize: 11, color: '#374151' }}>{t('tpl_figma_hint')}</span>}
         </div>
 
-        {/* Figma thumbnail preview */}
-        {figmaPreview && figmaPreview.thumbnail_url && (
-          <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', border: '1px solid #2d2848', maxHeight: 140 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={figmaPreview.thumbnail_url}
-              alt="Figma preview"
-              style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }}
-            />
-            {(figmaPreview.file_name || figmaPreview.node_name) && (
-              <div style={{ background: '#0d0b14', padding: '6px 10px', fontSize: 11, color: '#9b93c8' }}>
-                {figmaPreview.file_name && <span>{figmaPreview.file_name}</span>}
-                {figmaPreview.node_name && <span style={{ color: '#635c8a' }}> / {figmaPreview.node_name}</span>}
+        {form.has_figma && (
+          <div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                style={{ ...inputStyle, flex: 1 }}
+                value={form.figma_url}
+                onChange={e => onChange({ ...form, figma_url: e.target.value })}
+                placeholder="https://www.figma.com/design/..."
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={onFetchFigma}
+                disabled={!form.figma_url.trim() || fetchingFigma}
+                style={{
+                  background: form.figma_url.trim() ? '#1c1830' : '#13101e',
+                  border: '1px solid #2d2848', borderRadius: 8,
+                  color: form.figma_url.trim() ? '#c4bfe8' : '#374151',
+                  padding: '8px 12px', fontSize: 12,
+                  cursor: form.figma_url.trim() && !fetchingFigma ? 'pointer' : 'not-allowed',
+                  whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {fetchingFigma ? <Loader2 size={12} className="animate-spin" /> : <ImageOff size={12} />}
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={onExtractDesign}
+                disabled={!form.figma_url.trim() || extractingDesign}
+                style={{
+                  background: form.figma_url.trim() ? 'rgba(99,92,138,0.15)' : '#13101e',
+                  border: `1px solid ${form.figma_url.trim() ? 'rgba(167,139,250,0.4)' : '#2d2848'}`,
+                  borderRadius: 8, color: form.figma_url.trim() ? '#a78bfa' : '#374151',
+                  padding: '8px 12px', fontSize: 12,
+                  cursor: form.figma_url.trim() && !extractingDesign ? 'pointer' : 'not-allowed',
+                  whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {extractingDesign ? <Loader2 size={12} className="animate-spin" /> : <Layers size={12} />}
+                Extract
+              </button>
+            </div>
+            {figmaPreview?.thumbnail_url && (
+              <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', border: '1px solid #2d2848', maxHeight: 130 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={figmaPreview.thumbnail_url} alt="Figma preview" style={{ width: '100%', height: 130, objectFit: 'cover', display: 'block' }} />
+                {(figmaPreview.file_name || figmaPreview.node_name) && (
+                  <div style={{ background: '#0d0b14', padding: '5px 10px', fontSize: 11, color: '#9b93c8' }}>
+                    {figmaPreview.file_name && <span>{figmaPreview.file_name}</span>}
+                    {figmaPreview.node_name && <span style={{ color: '#635c8a' }}> / {figmaPreview.node_name}</span>}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -218,29 +275,126 @@ function TemplateFormFields({
 
       {/* Figma Design Context — full width */}
       <div style={{ gridColumn: '1 / -1' }}>
-        <label style={labelStyle}>Figma Design Context <span style={{ color: '#7367f0', fontWeight: 600 }}>✦ agents จะได้รับข้อมูลนี้</span></label>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>
+            {t('tpl_design_context_label')} <span style={{ color: '#7367f0', fontWeight: 600 }}>{t('tpl_design_context_suffix')}</span>
+          </label>
+          <button
+            type="button"
+            onClick={onAiFill}
+            disabled={aiFillingContext}
+            title={t('tpl_ai_fill_tooltip')}
+            style={{
+              background: aiFillingContext ? '#13101e' : 'rgba(232,54,93,0.1)',
+              border: `1px solid ${aiFillingContext ? '#2d2848' : 'rgba(232,54,93,0.35)'}`,
+              borderRadius: 6,
+              color: aiFillingContext ? '#374151' : '#E8365D',
+              padding: '4px 10px',
+              fontSize: 11,
+              cursor: aiFillingContext ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              fontWeight: 600,
+            }}
+          >
+            {aiFillingContext ? <Loader2 size={11} className="animate-spin" /> : <Wand2 size={11} />}
+            {aiFillingContext ? t('tpl_ai_filling') : t('tpl_ai_fill_btn')}
+          </button>
+        </div>
         <textarea
           style={{ ...inputStyle, resize: 'vertical', minHeight: 120, fontFamily: 'monospace', fontSize: 11 }}
           value={form.figma_design_context}
           onChange={e => onChange({ ...form, figma_design_context: e.target.value })}
-          placeholder="Design system ที่ agent จะใช้ เช่น สี, font, component style, layout rules...&#10;สามารถ paste มาจาก Figma หรือเขียน design spec ได้เลย"
+          placeholder={t('tpl_design_context_placeholder')}
           rows={6}
         />
         <p style={{ fontSize: 10, color: '#4b5563', marginTop: 4 }}>
-          ข้อมูลนี้จะถูกส่งให้ UX/UI agent และ Frontend agent ทุก task — ยิ่งละเอียดยิ่งดี
+          {t('tpl_design_context_hint')}
         </p>
       </div>
 
       {/* System Prompt Extra — full width */}
       <div style={{ gridColumn: '1 / -1' }}>
-        <label style={labelStyle}>System Prompt เพิ่มเติม</label>
+        <label style={labelStyle}>{t('tpl_system_prompt_label')}</label>
         <textarea
           style={{ ...inputStyle, resize: 'vertical', minHeight: 72, fontFamily: 'monospace', fontSize: 12 }}
           value={form.system_prompt_extra}
           onChange={e => onChange({ ...form, system_prompt_extra: e.target.value })}
-          placeholder="คำสั่งพิเศษที่จะถูกเพิ่มเข้าไปใน prompt เมื่อใช้เทมเพลตนี้..."
+          placeholder={t('tpl_system_prompt_placeholder')}
           rows={3}
         />
+      </div>
+
+      {/* Microsoft SSO — full width */}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <button
+            type="button"
+            onClick={() => onChange({ ...form, ms_tenant_id: form.ms_tenant_id ? '' : form.ms_tenant_id, ms_client_id: form.ms_tenant_id ? '' : form.ms_client_id })}
+            style={{
+              background: form.ms_tenant_id ? 'rgba(0,164,239,0.12)' : '#13101e',
+              border: `1px solid ${form.ms_tenant_id ? '#00A4EF' : '#2d2848'}`,
+              borderRadius: 7,
+              color: form.ms_tenant_id ? '#00A4EF' : '#6b7280',
+              padding: '5px 14px',
+              fontSize: 12,
+              fontWeight: form.ms_tenant_id ? 700 : 400,
+              cursor: 'pointer',
+            }}
+          >
+            Microsoft SSO
+          </button>
+          {!form.ms_tenant_id && (
+            <span style={{ fontSize: 11, color: '#374151' }}>{t('tpl_ms_hint')}</span>
+          )}
+        </div>
+
+        {form.ms_tenant_id !== undefined && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <label style={labelStyle}>Tenant ID</label>
+              <input
+                style={inputStyle}
+                value={form.ms_tenant_id}
+                onChange={e => onChange({ ...form, ms_tenant_id: e.target.value })}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Client ID (Application ID)</label>
+              <input
+                style={inputStyle}
+                value={form.ms_client_id}
+                onChange={e => onChange({ ...form, ms_client_id: e.target.value })}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={labelStyle}>Client Secret</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showSecret ? 'text' : 'password'}
+                  style={{ ...inputStyle, paddingRight: 36 }}
+                  value={form.ms_client_secret}
+                  onChange={e => onChange({ ...form, ms_client_secret: e.target.value })}
+                  placeholder="••••••••••••••••••••••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecret(s => !s)}
+                  style={{
+                    position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', color: '#4b5563', padding: 0,
+                    display: 'flex', alignItems: 'center',
+                  }}
+                >
+                  {showSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -250,148 +404,64 @@ function TemplateFormFields({
 
 function TemplateCard({
   template,
-  isEditing,
-  editForm,
-  editFigmaPreview,
-  editFetchingFigma,
   onEditStart,
-  onEditCancel,
-  onEditFormChange,
-  onEditFetchFigma,
-  onEditSave,
   onDelete,
 }: {
   template: Template
-  isEditing: boolean
-  editForm: TemplateForm
-  editFigmaPreview: FigmaPreview | null
-  editFetchingFigma: boolean
   onEditStart: () => void
-  onEditCancel: () => void
-  onEditFormChange: (f: TemplateForm) => void
-  onEditFetchFigma: () => void
-  onEditSave: () => void
   onDelete: () => void
 }) {
+  const { t } = useLanguage()
   const tags = parseTags(template.tags_json)
 
-  const cardStyle: React.CSSProperties = {
-    background: '#1c1830',
-    border: '1px solid #1a1422',
-    borderRadius: 16,
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column',
-  }
-
-  if (isEditing) {
-    return (
-      <div style={cardStyle}>
-        <div style={{ padding: '16px 16px 0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontFamily: 'var(--font-orbitron, monospace)', fontSize: 9, letterSpacing: '0.08em', color: '#635c8a', textTransform: 'uppercase' }}>แก้ไขเทมเพลต</span>
-            <button onClick={onEditCancel} style={{ background: 'none', border: 'none', color: '#635c8a', cursor: 'pointer', padding: 2 }}>
-              <X size={14} />
-            </button>
-          </div>
-          <TemplateFormFields
-            form={editForm}
-            onChange={onEditFormChange}
-            figmaPreview={editFigmaPreview}
-            fetchingFigma={editFetchingFigma}
-            onFetchFigma={onEditFetchFigma}
-            tempId={template.id}
-          />
-        </div>
-        <div style={{ padding: '12px 16px 16px', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button
-            onClick={onEditCancel}
-            style={{ background: '#13101e', border: '1px solid #2d2848', borderRadius: 8, color: '#9b93c8', padding: '8px 16px', fontSize: 12, cursor: 'pointer' }}
-          >
-            ยกเลิก
-          </button>
-          <button
-            onClick={onEditSave}
-            style={{ background: '#E8365D', border: 'none', borderRadius: 8, color: 'white', padding: '8px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <Check size={13} /> บันทึก
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div style={{ ...cardStyle, gap: 0 }}>
+    <div style={{ background: '#1c1830', border: '1px solid #1a1422', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 0 }}>
       {/* Thumbnail */}
-      <div style={{ height: 160, background: '#0d0b14', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+      <div style={{ height: 130, background: '#0d0b14', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
         {template.figma_thumbnail_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={template.figma_thumbnail_url}
-            alt={template.name}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          />
+          <img src={template.figma_thumbnail_url} alt={template.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         ) : (
-          <LayoutTemplate size={40} style={{ color: '#2d2848' }} />
+          <LayoutTemplate size={32} style={{ color: '#2d2848' }} />
         )}
         {template.figma_url && (
-          <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(13,11,20,0.8)', border: '1px solid #2d2848', borderRadius: 6, padding: '2px 7px', fontSize: 10, color: '#9b93c8' }}>
+          <div style={{ position: 'absolute', top: 7, right: 7, background: 'rgba(13,11,20,0.85)', border: '1px solid #2d2848', borderRadius: 5, padding: '2px 6px', fontSize: 9, color: '#9b93c8' }}>
             Figma
           </div>
         )}
       </div>
 
       {/* Content */}
-      <div style={{ padding: '14px 16px', flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div>
-          <div style={{ fontWeight: 700, color: 'white', fontSize: 15, lineHeight: 1.3 }}>{template.name}</div>
-          {template.description && (
-            <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-              {template.description}
-            </div>
-          )}
+      <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontWeight: 700, color: 'white', fontSize: 13, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {template.name}
         </div>
-
-        {/* Tech stack */}
-        {template.tech_stack && (
-          <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-            <span style={{ background: 'rgba(6,182,212,0.1)', color: '#06b6d4', border: '1px solid rgba(6,182,212,0.25)', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontFamily: 'monospace' }}>
-              {template.tech_stack}
-            </span>
+        {template.description && (
+          <div style={{ color: '#6b7280', fontSize: 11, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {template.description}
           </div>
         )}
-
-        {/* Tags */}
+        {template.tech_stack && (
+          <span style={{ background: 'rgba(6,182,212,0.1)', color: '#06b6d4', border: '1px solid rgba(6,182,212,0.25)', borderRadius: 5, padding: '2px 7px', fontSize: 10, fontFamily: 'monospace', alignSelf: 'flex-start' }}>
+            {template.tech_stack}
+          </span>
+        )}
         {tags.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
             {tags.map(tag => (
-              <span key={tag} style={{ background: 'rgba(99,92,138,0.2)', color: '#c4bfe8', borderRadius: 4, padding: '1px 7px', fontSize: 10 }}>
-                {tag}
-              </span>
+              <span key={tag} style={{ background: 'rgba(99,92,138,0.2)', color: '#c4bfe8', borderRadius: 4, padding: '1px 6px', fontSize: 9 }}>{tag}</span>
             ))}
           </div>
         )}
       </div>
 
-      {/* Divider */}
-      <div style={{ borderTop: '1px solid #1a1422', margin: '0 16px' }} />
-
       {/* Actions */}
-      <div style={{ padding: '10px 16px', display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
-        <button
-          onClick={onEditStart}
-          title="แก้ไข"
-          style={{ background: '#13101e', border: '1px solid #2d2848', borderRadius: 8, color: '#9b93c8', padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}
-        >
-          <Pencil size={13} /> แก้ไข
+      <div style={{ borderTop: '1px solid #1a1422', padding: '8px 14px', display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+        <button onClick={onEditStart} style={{ background: '#13101e', border: '1px solid #2d2848', borderRadius: 7, color: '#9b93c8', padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+          <Pencil size={11} /> {t('tpl_edit_btn')}
         </button>
-        <button
-          onClick={onDelete}
-          title="ลบ"
-          style={{ background: '#13101e', border: '1px solid #2d2848', borderRadius: 8, color: '#6b7280', padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-        >
-          <Trash2 size={13} />
+        <button onClick={onDelete} style={{ background: '#13101e', border: '1px solid #2d2848', borderRadius: 7, color: '#6b7280', padding: '6px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+          <Trash2 size={11} />
         </button>
       </div>
     </div>
@@ -401,6 +471,7 @@ function TemplateCard({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function TemplatesPage() {
+  const { t } = useLanguage()
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -411,11 +482,16 @@ export default function TemplatesPage() {
   const [fetchingFigma, setFetchingFigma] = useState(false)
   const [figmaPreview, setFigmaPreview] = useState<FigmaPreview | null>(null)
 
+  const [extractingDesign, setExtractingDesign] = useState(false)
+  const [aiFillingContext, setAiFillingContext] = useState(false)
+
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<TemplateForm>(EMPTY_FORM)
   const [editFetchingFigma, setEditFetchingFigma] = useState(false)
   const [editFigmaPreview, setEditFigmaPreview] = useState<FigmaPreview | null>(null)
+  const [editExtractingDesign, setEditExtractingDesign] = useState(false)
+  const [editAiFillingContext, setEditAiFillingContext] = useState(false)
 
   // ── Data fetching ────────────────────────────────────────────────────────────
 
@@ -455,12 +531,76 @@ export default function TemplatesPage() {
         setPreview({ thumbnail_url: data.thumbnail_url, node_name: data.node_name, file_name: data.file_name })
       } else {
         setPreview(null)
-        alert(data.error ?? 'ไม่สามารถ fetch Figma ได้')
+        alert(data.error ?? t('err_figma_fetch'))
       }
     } catch {
       setPreview(null)
     } finally {
       setFetching(false)
+    }
+  }
+
+  // ── Extract design context (Figma) ──────────────────────────────────────────
+
+  const extractDesignContext = async (
+    currentForm: TemplateForm,
+    tempId: string,
+    setExtracting: (v: boolean) => void,
+    setFormFn: (fn: (f: TemplateForm) => TemplateForm) => void,
+  ) => {
+    const url = currentForm.figma_url
+    if (!url.trim()) return
+    setExtracting(true)
+    try {
+      const res = await fetch(`/api/project-templates/${tempId}/figma-design-context`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ figma_url: url }),
+      })
+      const data = await res.json() as { ok?: boolean; context?: string; error?: string }
+      if (data.ok && data.context) {
+        setFormFn(f => ({ ...f, figma_design_context: data.context! }))
+      } else {
+        alert(data.error ?? t('err_extract_context'))
+      }
+    } catch {
+      alert(t('err_connection'))
+    } finally {
+      setExtracting(false)
+    }
+  }
+
+  // ── AI fill design context ───────────────────────────────────────────────────
+
+  const aiFillContext = async (
+    currentForm: TemplateForm,
+    tempId: string,
+    setFilling: (v: boolean) => void,
+    setFormFn: (fn: (f: TemplateForm) => TemplateForm) => void,
+  ) => {
+    setFilling(true)
+    try {
+      const res = await fetch(`/api/project-templates/${tempId}/ai-fill-context`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          figma_url: currentForm.figma_url,
+          name: currentForm.name,
+          description: currentForm.description,
+          tech_stack: currentForm.tech_stack,
+          figma_context: currentForm.figma_design_context,
+        }),
+      })
+      const data = await res.json() as { ok?: boolean; context?: string; error?: string }
+      if (data.ok && data.context) {
+        setFormFn(f => ({ ...f, figma_design_context: data.context! }))
+      } else {
+        alert(data.error ?? t('err_extract_context'))
+      }
+    } catch {
+      alert(t('err_connection'))
+    } finally {
+      setFilling(false)
     }
   }
 
@@ -472,7 +612,7 @@ export default function TemplatesPage() {
     try {
       const payload = {
         ...formToPayload(form),
-        figma_thumbnail_url: figmaPreview?.thumbnail_url ?? '',
+        figma_thumbnail_url: form.has_figma ? (figmaPreview?.thumbnail_url ?? '') : '',
       }
       const res = await fetch('/api/project-templates', {
         method: 'POST',
@@ -486,7 +626,7 @@ export default function TemplatesPage() {
         await fetchTemplates()
       } else {
         const err = await res.json() as { error?: string }
-        alert(err.error ?? 'เกิดข้อผิดพลาด')
+        alert(err.error ?? t('err_generic'))
       }
     } finally {
       setCreating(false)
@@ -495,17 +635,17 @@ export default function TemplatesPage() {
 
   // ── Edit ─────────────────────────────────────────────────────────────────────
 
-  const handleEditStart = (t: Template) => {
-    setEditingId(t.id)
-    setEditForm(templateToForm(t))
-    setEditFigmaPreview(t.figma_thumbnail_url ? { thumbnail_url: t.figma_thumbnail_url } : null)
+  const handleEditStart = (tpl: Template) => {
+    setEditingId(tpl.id)
+    setEditForm(templateToForm(tpl))
+    setEditFigmaPreview(tpl.figma_thumbnail_url ? { thumbnail_url: tpl.figma_thumbnail_url } : null)
   }
 
   const handleEditSave = async () => {
     if (!editingId || !editForm.name.trim()) return
     const payload = {
       ...formToPayload(editForm),
-      figma_thumbnail_url: editFigmaPreview?.thumbnail_url ?? '',
+      figma_thumbnail_url: editForm.has_figma ? (editFigmaPreview?.thumbnail_url ?? '') : '',
     }
     try {
       const res = await fetch(`/api/project-templates/${editingId}`, {
@@ -513,16 +653,16 @@ export default function TemplatesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
+      const resData = await res.json() as Record<string, unknown>
       if (res.ok) {
         setEditingId(null)
         setEditFigmaPreview(null)
         await fetchTemplates()
       } else {
-        const err = await res.json() as { error?: string }
-        alert(err.error ?? 'เกิดข้อผิดพลาด')
+        alert((resData as { error?: string }).error ?? t('err_generic'))
       }
     } catch {
-      alert('เกิดข้อผิดพลาดในการบันทึก')
+      alert(t('err_save_failed'))
     }
   }
 
@@ -533,11 +673,24 @@ export default function TemplatesPage() {
     try {
       const res = await fetch(`/api/project-templates/${id}`, { method: 'DELETE' })
       if (res.ok) await fetchTemplates()
-      else alert('ลบไม่สำเร็จ')
+      else alert(t('err_delete_failed'))
     } catch {
-      alert('เกิดข้อผิดพลาด')
+      alert(t('err_generic'))
     }
   }
+
+  const closeModal = () => {
+    setShowCreate(false)
+    setEditingId(null)
+    setForm(EMPTY_FORM)
+    setFigmaPreview(null)
+    setEditForm(EMPTY_FORM)
+    setEditFigmaPreview(null)
+  }
+
+  const isCreateModal = showCreate
+  const isEditModal = !!editingId
+  const modalOpen = isCreateModal || isEditModal
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -548,82 +701,23 @@ export default function TemplatesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-orbitron, monospace)', fontSize: 22, fontWeight: 700, color: '#ede9f8', letterSpacing: '0.04em', marginBottom: 4 }}>
-            TEMPLATES
+            {t('templates_title')}
           </h1>
-          <p style={{ color: '#5a5680', fontSize: 13 }}>// เทมเพลตสำหรับสร้างโปรเจกต์ใหม่ด้วย AI</p>
+          <p style={{ color: '#5a5680', fontSize: 13 }}>{t('templates_subtitle')}</p>
         </div>
         <button
-          onClick={() => { setShowCreate(v => !v); setFigmaPreview(null); setForm(EMPTY_FORM) }}
-          style={{
-            background: showCreate ? 'rgba(232,54,93,0.15)' : '#E8365D',
-            border: showCreate ? '1px solid rgba(232,54,93,0.4)' : 'none',
-            borderRadius: 10,
-            color: showCreate ? '#E8365D' : 'white',
-            padding: '10px 20px',
-            fontSize: 13,
-            fontWeight: 700,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7,
-            letterSpacing: '0.03em',
-          }}
+          onClick={() => { setShowCreate(true); setFigmaPreview(null); setForm(EMPTY_FORM) }}
+          style={{ background: '#E8365D', border: 'none', borderRadius: 10, color: 'white', padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, letterSpacing: '0.03em' }}
         >
-          {showCreate ? <X size={15} /> : <Plus size={15} />}
-          {showCreate ? 'ปิด' : '+ NEW TEMPLATE'}
+          <Plus size={15} /> {t('templates_new_btn')}
         </button>
       </div>
-
-      {/* Create Form */}
-      {showCreate && (
-        <div style={{ background: '#1c1830', border: '1px solid #2d2848', borderRadius: 16, padding: 20, marginBottom: 28 }}>
-          <div style={{ fontFamily: 'var(--font-orbitron, monospace)', fontSize: 9, letterSpacing: '0.08em', color: '#635c8a', textTransform: 'uppercase', marginBottom: 14 }}>
-            เทมเพลตใหม่
-          </div>
-          <TemplateFormFields
-            form={form}
-            onChange={setForm}
-            figmaPreview={figmaPreview}
-            fetchingFigma={fetchingFigma}
-            onFetchFigma={() => fetchFigmaPreview(form.figma_url, 'new', setFetchingFigma, setFigmaPreview)}
-            tempId="new"
-          />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
-            <button
-              onClick={() => { setShowCreate(false); setForm(EMPTY_FORM); setFigmaPreview(null) }}
-              style={{ background: '#13101e', border: '1px solid #2d2848', borderRadius: 8, color: '#9b93c8', padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}
-            >
-              ยกเลิก
-            </button>
-            <button
-              onClick={handleCreate}
-              disabled={!form.name.trim() || creating}
-              style={{
-                background: form.name.trim() && !creating ? '#E8365D' : '#2d2848',
-                border: 'none',
-                borderRadius: 8,
-                color: form.name.trim() && !creating ? 'white' : '#635c8a',
-                padding: '9px 22px',
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: form.name.trim() && !creating ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-              }}
-            >
-              {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-              {creating ? 'กำลังสร้าง...' : 'CREATE'}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Loading */}
       {loading && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, padding: '64px 0', color: '#635c8a' }}>
           <Loader2 size={18} className="animate-spin" />
-          <span style={{ fontFamily: 'var(--font-orbitron, monospace)', fontSize: 11, letterSpacing: '0.08em' }}>LOADING TEMPLATES...</span>
+          <span style={{ fontFamily: 'var(--font-orbitron, monospace)', fontSize: 11, letterSpacing: '0.08em' }}>{t('templates_loading')}</span>
         </div>
       )}
 
@@ -633,36 +727,105 @@ export default function TemplatesPage() {
           <div style={{ width: 72, height: 72, borderRadius: 20, background: 'rgba(99,92,138,0.1)', border: '1px solid #2d2848', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <LayoutTemplate size={30} style={{ color: '#3d3660' }} />
           </div>
-          <div style={{ fontFamily: 'var(--font-orbitron, monospace)', fontSize: 13, color: '#5a5680', letterSpacing: '0.04em' }}>ยังไม่มีเทมเพลต</div>
-          <div style={{ color: '#374151', fontSize: 13, maxWidth: 320 }}>สร้างเทมเพลตเพื่อเริ่มต้นโปรเจกต์ใหม่ได้เร็วขึ้น พร้อม tech stack และ Figma design ที่กำหนดไว้แล้ว</div>
-          <button
-            onClick={() => setShowCreate(true)}
-            style={{ marginTop: 4, background: '#E8365D', border: 'none', borderRadius: 10, color: 'white', padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}
-          >
-            <Plus size={14} /> สร้างเทมเพลตแรก
+          <div style={{ fontFamily: 'var(--font-orbitron, monospace)', fontSize: 13, color: '#5a5680', letterSpacing: '0.04em' }}>{t('templates_empty_title')}</div>
+          <div style={{ color: '#374151', fontSize: 13, maxWidth: 320 }}>{t('templates_empty_desc')}</div>
+          <button onClick={() => setShowCreate(true)} style={{ marginTop: 4, background: '#E8365D', border: 'none', borderRadius: 10, color: 'white', padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 }}>
+            <Plus size={14} /> {t('templates_create_first')}
           </button>
         </div>
       )}
 
-      {/* Templates Grid */}
+      {/* Templates Grid — 4 columns */}
       {!loading && templates.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
-          {templates.map(t => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+          {templates.map(tpl => (
             <TemplateCard
-              key={t.id}
-              template={t}
-              isEditing={editingId === t.id}
-              editForm={editForm}
-              editFigmaPreview={editFigmaPreview}
-              editFetchingFigma={editFetchingFigma}
-              onEditStart={() => handleEditStart(t)}
-              onEditCancel={() => { setEditingId(null); setEditFigmaPreview(null) }}
-              onEditFormChange={setEditForm}
-              onEditFetchFigma={() => fetchFigmaPreview(editForm.figma_url, t.id, setEditFetchingFigma, setEditFigmaPreview)}
-              onEditSave={handleEditSave}
-              onDelete={() => handleDelete(t.id, t.name)}
+              key={tpl.id}
+              template={tpl}
+              onEditStart={() => handleEditStart(tpl)}
+              onDelete={() => handleDelete(tpl.id, tpl.name)}
             />
           ))}
+        </div>
+      )}
+
+      {/* ── Modal (create + edit) ───────────────────────────────────────────── */}
+      {modalOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'rgba(0,0,0,0.75)' }}
+          onClick={e => { if (e.target === e.currentTarget) closeModal() }}
+        >
+          <div style={{ background: '#1c1830', border: '1px solid #2d2848', borderRadius: 18, width: '100%', maxWidth: 680, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Modal header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid #2d2848', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <LayoutTemplate size={16} style={{ color: '#a78bfa' }} />
+                <span style={{ fontFamily: 'var(--font-orbitron, monospace)', fontSize: 12, fontWeight: 700, color: '#ede9f8', letterSpacing: '0.05em' }}>
+                  {isCreateModal ? t('templates_modal_create') : t('templates_modal_edit')}
+                </span>
+              </div>
+              <button onClick={closeModal} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 4, display: 'flex' }}>
+                <X size={17} />
+              </button>
+            </div>
+
+            {/* Modal body — scrollable */}
+            <div style={{ overflowY: 'auto', padding: '20px 22px', flex: 1 }}>
+              {isCreateModal ? (
+                <TemplateFormFields
+                  form={form}
+                  onChange={setForm}
+                  figmaPreview={figmaPreview}
+                  fetchingFigma={fetchingFigma}
+                  onFetchFigma={() => fetchFigmaPreview(form.figma_url, 'new', setFetchingFigma, setFigmaPreview)}
+                  onExtractDesign={() => extractDesignContext(form, 'new', setExtractingDesign, fn => setForm(fn))}
+                  extractingDesign={extractingDesign}
+                  onAiFill={() => aiFillContext(form, 'new', setAiFillingContext, fn => setForm(fn))}
+                  aiFillingContext={aiFillingContext}
+                />
+              ) : (
+                <TemplateFormFields
+                  form={editForm}
+                  onChange={setEditForm}
+                  figmaPreview={editFigmaPreview}
+                  fetchingFigma={editFetchingFigma}
+                  onFetchFigma={() => fetchFigmaPreview(editForm.figma_url, editingId!, setEditFetchingFigma, setEditFigmaPreview)}
+                  onExtractDesign={() => extractDesignContext(editForm, editingId!, setEditExtractingDesign, fn => setEditForm(fn))}
+                  extractingDesign={editExtractingDesign}
+                  onAiFill={() => aiFillContext(editForm, editingId!, setEditAiFillingContext, fn => setEditForm(fn))}
+                  aiFillingContext={editAiFillingContext}
+                />
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 22px', borderTop: '1px solid #2d2848', flexShrink: 0 }}>
+              <button
+                onClick={closeModal}
+                style={{ background: '#13101e', border: '1px solid #2d2848', borderRadius: 8, color: '#9b93c8', padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}
+              >
+                {t('cancel')}
+              </button>
+              {isCreateModal ? (
+                <button
+                  onClick={handleCreate}
+                  disabled={!form.name.trim() || creating}
+                  style={{ background: form.name.trim() && !creating ? '#E8365D' : '#2d2848', border: 'none', borderRadius: 8, color: form.name.trim() && !creating ? 'white' : '#635c8a', padding: '9px 22px', fontSize: 13, fontWeight: 700, cursor: form.name.trim() && !creating ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 7 }}
+                >
+                  {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  {creating ? t('templates_creating') : t('templates_create_btn')}
+                </button>
+              ) : (
+                <button
+                  onClick={handleEditSave}
+                  disabled={!editForm.name.trim()}
+                  style={{ background: editForm.name.trim() ? '#E8365D' : '#2d2848', border: 'none', borderRadius: 8, color: editForm.name.trim() ? 'white' : '#635c8a', padding: '9px 22px', fontSize: 13, fontWeight: 700, cursor: editForm.name.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 7 }}
+                >
+                  <Check size={14} /> {t('templates_save_btn')}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

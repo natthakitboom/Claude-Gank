@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import PixelSprite from '@/components/PixelSprite'
 import { useLanguage } from '@/lib/i18n'
 
@@ -71,6 +72,7 @@ function AgentTerminal({ mission, expanded, onToggle }: {
   expanded: boolean
   onToggle: () => void
 }) {
+  const { t } = useLanguage()
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevLen = useRef(0)
   const animFrameRef = useRef<number>(0)
@@ -260,19 +262,19 @@ function AgentTerminal({ mission, expanded, onToggle }: {
                   ))}
                 </div>
                 <span className="font-orbitron" style={{ fontSize: '9px', color: phaseColor, opacity: 0.7, letterSpacing: '0.15em' }}>
-                  กำลังคิด...
+                  {t('mon_thinking')}
                 </span>
               </>
             ) : mission.status === 'waiting_phase' ? (
               <span className="font-orbitron" style={{ fontSize: '9px', color: '#f59e0b', opacity: 0.6 }}>
-                ⏳ รอ Phase {mission.phase - 1} เสร็จก่อน
+                {t('mon_waiting_phase')} {mission.phase - 1} {t('mon_waiting_phase_suffix')}
               </span>
             ) : mission.status === 'waiting' || mission.status === 'waiting_retest' ? (
               <span className="font-orbitron" style={{ fontSize: '9px', color: '#a855f7', opacity: 0.6 }}>
-                ⏳ รอผลลัพธ์...
+                {t('mon_waiting_result')}
               </span>
             ) : (
-              <span className="font-orbitron" style={{ fontSize: '9px', color: '#374151' }}>— ยังไม่มี output —</span>
+              <span className="font-orbitron" style={{ fontSize: '9px', color: '#374151' }}>{t('mon_no_output')}</span>
             )}
           </div>
         ) : (
@@ -366,6 +368,9 @@ function PhaseProgress({ missions }: { missions: LiveMission[] }) {
 // ── Main Monitor Page ──────────────────────────────────────────
 export default function MonitorPage() {
   const { t } = useLanguage()
+  const searchParams = useSearchParams()
+  const filterProjectId = searchParams.get('project')
+
   const [missions, setMissions] = useState<LiveMission[]>([])
   const [allProjectMissions, setAllProjectMissions] = useState<LiveMission[]>([])
   const [project, setProject] = useState<ProjectInfo | null>(null)
@@ -375,49 +380,54 @@ export default function MonitorPage() {
 
   const fetchMissions = useCallback(async () => {
     try {
-      // Get running missions
       const runRes = await fetch('/api/missions?status=running')
       const running: LiveMission[] = await runRes.json()
 
-      // Get recently done/failed (last 30 minutes)
       const recentRes = await fetch('/api/missions?date=today')
       const recent: LiveMission[] = await recentRes.json()
 
-      // Find active project (has running sub-missions)
-      const parentIds = new Set(running.filter(m => m.parent_mission_id).map(m => m.parent_mission_id!))
-      let activeParent = parentIds.size > 0 ? Array.from(parentIds)[0] : null
+      // If project filter is set, load that project's info and missions directly
+      let activeParent: string | null = null
 
-      // If no running, check for latest project with sub-missions
-      if (!activeParent) {
-        const projectMissions = recent.filter(m =>
-          m.parent_mission_id && (m.status === 'done' || m.status === 'waiting_phase' || m.status === 'waiting' || m.status === 'waiting_retest')
-        )
-        if (projectMissions.length > 0) {
-          activeParent = projectMissions[0].parent_mission_id
+      if (filterProjectId) {
+        const projRes = await fetch('/api/projects')
+        const projects: ProjectInfo[] = await projRes.json()
+        const p = projects.find((p: any) => p.id === filterProjectId) as any
+        if (p) {
+          setProject(p)
+          activeParent = p.mission_id
+        }
+      } else {
+        // Auto-detect active project
+        const parentIds = new Set(running.filter(m => m.parent_mission_id).map(m => m.parent_mission_id!))
+        activeParent = parentIds.size > 0 ? Array.from(parentIds)[0] : null
+
+        if (!activeParent) {
+          const projectMissions = recent.filter(m =>
+            m.parent_mission_id && (m.status === 'done' || m.status === 'waiting_phase' || m.status === 'waiting' || m.status === 'waiting_retest')
+          )
+          if (projectMissions.length > 0) activeParent = projectMissions[0].parent_mission_id
+        }
+
+        if (activeParent) {
+          try {
+            const projRes = await fetch('/api/projects')
+            const projects: ProjectInfo[] = await projRes.json()
+            const p = projects.find((p: any) => p.mission_id === activeParent)
+            setProject(p || null)
+          } catch {}
         }
       }
 
-      // If we have an active project, get ALL its sub-missions
       if (activeParent) {
         const allSubs = recent.filter(m => m.parent_mission_id === activeParent)
-        // Also add running ones not in recent
         for (const r of running) {
-          if (r.parent_mission_id === activeParent && !allSubs.find(s => s.id === r.id)) {
-            allSubs.push(r)
-          }
+          if (r.parent_mission_id === activeParent && !allSubs.find(s => s.id === r.id)) allSubs.push(r)
         }
         setAllProjectMissions(allSubs.sort((a, b) => (a.phase || 0) - (b.phase || 0)))
-
-        // Get project info
-        try {
-          const projRes = await fetch('/api/projects')
-          const projects: ProjectInfo[] = await projRes.json()
-          const p = projects.find((p: any) => p.mission_id === activeParent)
-          setProject(p || null)
-        } catch {}
       }
 
-      // Active view: running + recently done with output
+      // Active view — filter by project if param set
       const active = [
         ...running,
         ...recent.filter(m =>
@@ -426,11 +436,11 @@ export default function MonitorPage() {
           m.output &&
           !running.find(r => r.id === m.id)
         ).slice(0, 12),
-      ]
+      ].filter(m => !filterProjectId || m.parent_mission_id === (project?.mission_id ?? activeParent))
 
       setMissions(active)
     } catch {}
-  }, [])
+  }, [filterProjectId, project?.mission_id])
 
   useEffect(() => {
     fetchMissions()
@@ -474,28 +484,33 @@ export default function MonitorPage() {
                 fontSize: '9px', background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)',
               }}>
                 <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#10b981' }} />
-                {runningCount} RUNNING
+                {runningCount} {t('mon_running')}
               </span>
             )}
             {waitingCount > 0 && (
               <span className="font-orbitron px-2 py-1 rounded" style={{
                 fontSize: '9px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)',
               }}>
-                {waitingCount} WAITING
+                {waitingCount} {t('mon_waiting')}
               </span>
             )}
             {runningCount === 0 && waitingCount === 0 && missions.length === 0 && (
               <span className="font-orbitron px-2 py-1 rounded" style={{
                 fontSize: '9px', background: '#181218', color: '#374151', border: '1px solid #2E1E27',
               }}>
-                ALL IDLE
+                {t('mon_all_idle')}
               </span>
             )}
           </div>
           {project && (
             <div className="mt-1 flex items-center gap-2">
-              <span style={{ fontSize: '10px', color: '#475569' }}>Project:</span>
+              <span style={{ fontSize: '10px', color: '#475569' }}>{t('mon_project_label')}</span>
               <span className="font-medium text-white" style={{ fontSize: '11px' }}>{project.name}</span>
+              {filterProjectId && (
+                <a href="/monitor" className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '8px', background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>
+                  {t('mon_see_all')}
+                </a>
+              )}
             </div>
           )}
         </div>
@@ -513,7 +528,7 @@ export default function MonitorPage() {
                 cursor: 'pointer',
               }}
             >
-              ACTIVE
+              {t('mon_view_active')}
             </button>
             <button
               onClick={() => setViewMode('all')}
@@ -525,7 +540,7 @@ export default function MonitorPage() {
                 cursor: 'pointer',
               }}
             >
-              ALL PHASES
+              {t('mon_view_all_phases')}
             </button>
           </div>
           {expandedId && (
@@ -534,7 +549,7 @@ export default function MonitorPage() {
               className="font-orbitron px-3 py-1 rounded"
               style={{ fontSize: '8px', background: '#2E1E27', color: '#94a3b8', cursor: 'pointer', border: '1px solid #2d3f55' }}
             >
-              ← GRID VIEW
+              {t('mon_grid_view')}
             </button>
           )}
         </div>
@@ -552,10 +567,10 @@ export default function MonitorPage() {
         <div className="flex flex-col items-center justify-center" style={{ minHeight: '60vh' }}>
           <div style={{ fontSize: '60px', opacity: 0.15 }}>🖥️</div>
           <div className="font-orbitron mt-4" style={{ fontSize: '12px', color: '#1f2937', letterSpacing: '0.1em' }}>
-            NO ACTIVE MISSIONS
+            {t('mon_no_active')}
           </div>
           <div className="mt-2" style={{ fontSize: '10px', color: '#181218' }}>
-            Deploy a mission via 🏢 TEAM to see live agent output here
+            {t('mon_no_active_desc')}
           </div>
         </div>
       )}

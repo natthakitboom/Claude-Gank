@@ -5,8 +5,24 @@ import { v4 as uuidv4 } from 'uuid'
 export async function GET() {
   try {
     const db = getDb()
-    const agents = db.prepare('SELECT * FROM agents ORDER BY team, name').all()
-    return NextResponse.json(agents)
+    const agents = db.prepare('SELECT * FROM agents ORDER BY team, name').all() as any[]
+
+    // Derive status from active missions — agent.status can get stale when missions
+    // run in background (status='pending' + started_at set = actually executing)
+    const activeAgentIds = new Set<string>(
+      (db.prepare(`
+        SELECT DISTINCT agent_id FROM missions
+        WHERE status = 'running'
+           OR (status = 'pending' AND started_at IS NOT NULL)
+      `).all() as { agent_id: string }[]).map((r) => r.agent_id)
+    )
+
+    const result = agents.map((a) => ({
+      ...a,
+      status: activeAgentIds.has(a.id) ? 'working' : a.status === 'working' ? 'idle' : a.status,
+    }))
+
+    return NextResponse.json(result)
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 })
   }

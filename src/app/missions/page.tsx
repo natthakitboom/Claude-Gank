@@ -18,7 +18,7 @@ interface MissionTemplate {
 }
 
 export default function MissionsPage() {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
   const [missions, setMissions] = useState<MissionRow[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [selected, setSelected] = useState<MissionRow | null>(null)
@@ -270,14 +270,14 @@ export default function MissionsPage() {
               {runningCount > 0 && (
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="status-dot working" />
-                  <span className="font-orbitron" style={{ fontSize: '8px', color: '#10b981' }}>{runningCount} RUNNING</span>
+                  <span className="font-orbitron" style={{ fontSize: '8px', color: '#10b981' }}>{runningCount} {t('missions_running_badge')}</span>
                 </div>
               )}
             </div>
             <div className="flex gap-1">
-              <button onClick={() => setShowTemplates(true)} className="font-orbitron px-2 py-1 rounded" style={{ fontSize: '8px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)', color: '#f59e0b', letterSpacing: '0.05em' }}>📋 TPL</button>
-              <button onClick={() => setShowTeamModal(true)} className="font-orbitron px-2 py-1 rounded" style={{ fontSize: '8px', background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#a855f7', letterSpacing: '0.05em' }}>🏢 TEAM</button>
-              <button onClick={() => setShowCreateModal(true)} className="btn-deploy" style={{ padding: '6px 12px', fontSize: '9px' }}>DEPLOY</button>
+              <button onClick={() => setShowTemplates(true)} className="font-orbitron px-2 py-1 rounded" style={{ fontSize: '8px', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.4)', color: '#f59e0b', letterSpacing: '0.05em' }}>{t('missions_tpl_btn')}</button>
+              <button onClick={() => setShowTeamModal(true)} className="font-orbitron px-2 py-1 rounded" style={{ fontSize: '8px', background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: '#a855f7', letterSpacing: '0.05em' }}>{t('missions_team_btn')}</button>
+              <button onClick={() => setShowCreateModal(true)} className="btn-deploy" style={{ padding: '6px 12px', fontSize: '9px' }}>{t('missions_deploy_short')}</button>
             </div>
           </div>
 
@@ -291,7 +291,7 @@ export default function MissionsPage() {
                 ? { background: 'rgba(212,67,107,0.1)', border: '1px solid #E8365D33', color: '#E8365D', fontSize: '8px', letterSpacing: '0.05em' }
                 : { background: '#181218', color: '#1f2937', fontSize: '8px', letterSpacing: '0.05em' }}
             >
-              ▶▶ ALL PENDING ({pendingCount})
+              {t('missions_all_pending')} ({pendingCount})
             </button>
             {selectedIds.size > 0 && (
               <button
@@ -307,7 +307,7 @@ export default function MissionsPage() {
           {/* Search */}
           <input
             type="text"
-            placeholder="🔍 Search missions..."
+            placeholder={t('missions_search_placeholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="gank-input mb-2"
@@ -322,8 +322,8 @@ export default function MissionsPage() {
               className="gank-input flex-1"
               style={{ fontSize: '9px', padding: '4px 6px' }}
             >
-              <option value="">All Agents</option>
-              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              <option value="">{t('missions_filter_all_agents')}</option>
+              {agents.map(a => <option key={a.id} value={a.id}>{lang === 'EN' && a.name_en ? a.name_en : a.name}</option>)}
             </select>
             <select
               value={filterDate}
@@ -331,10 +331,10 @@ export default function MissionsPage() {
               className="gank-input"
               style={{ fontSize: '9px', padding: '4px 6px', width: 80 }}
             >
-              <option value="all">All</option>
-              <option value="today">Today</option>
-              <option value="week">7 days</option>
-              <option value="month">30 days</option>
+              <option value="all">{t('missions_date_all')}</option>
+              <option value="today">{t('missions_date_today')}</option>
+              <option value="week">{t('missions_date_week')}</option>
+              <option value="month">{t('missions_date_month')}</option>
             </select>
           </div>
 
@@ -393,10 +393,10 @@ export default function MissionsPage() {
                         {isSub && (m as any).phase != null && <span className="font-orbitron px-1 py-0.5 rounded" style={{ fontSize: '6px', background: ['rgba(168,85,247,0.15)','rgba(59,130,246,0.15)','rgba(16,185,129,0.15)','rgba(245,158,11,0.15)','rgba(239,68,68,0.15)'][(m as any).phase] || '#111', color: ['#a855f7','#3b82f6','#10b981','#f59e0b','#ef4444'][(m as any).phase] || '#666', border: `1px solid ${['rgba(168,85,247,0.3)','rgba(59,130,246,0.3)','rgba(16,185,129,0.3)','rgba(245,158,11,0.3)','rgba(239,68,68,0.3)'][(m as any).phase] || '#333'}` }}>P{(m as any).phase}</span>}
                         <span className="text-xs font-medium text-white truncate">{m.title}</span>
                       </div>
-                      <div className="font-orbitron truncate" style={{ fontSize: '8px', color: '#374151' }}>{m.agent_name}</div>
+                      <div className="font-orbitron truncate" style={{ fontSize: '8px', color: '#374151' }}>{lang === 'EN' && m.agent_name_en ? m.agent_name_en : m.agent_name}</div>
                       <div className="flex items-center gap-1.5 mt-1.5">
                         <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '8px', background: statusBg(m.status), color: statusColor(m.status) }}>
-                          {isBatchRunning && m.status !== 'running' ? 'QUEUED' : m.status === 'waiting_phase' ? 'WAITING' : m.status === 'waiting_retest' ? 'RETEST' : m.status.toUpperCase()}
+                          {isBatchRunning && m.status !== 'running' ? t('missions_queued') : m.status === 'waiting_phase' ? 'WAITING' : m.status === 'waiting_retest' ? 'RETEST' : m.status.toUpperCase()}
                         </span>
                         <span className="font-orbitron px-1.5 py-0.5 rounded" style={{ fontSize: '8px', background: '#181218', color: prioColor(m.priority) }}>
                           {m.priority.toUpperCase()}
@@ -419,8 +419,8 @@ export default function MissionsPage() {
         {!selected ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <div className="font-orbitron mb-2" style={{ fontSize: '11px', color: '#1f2937', letterSpacing: '0.1em' }}>// SELECT A MISSION OR DEPLOY A NEW ONE</div>
-              <button onClick={() => setShowCreateModal(true)} className="btn-deploy mt-4">+ DEPLOY MISSION</button>
+              <div className="font-orbitron mb-2" style={{ fontSize: '11px', color: '#1f2937', letterSpacing: '0.1em' }}>{t('missions_select_or_deploy')}</div>
+              <button onClick={() => setShowCreateModal(true)} className="btn-deploy mt-4">{t('missions_deploy_btn')}</button>
             </div>
           </div>
         ) : (
@@ -432,7 +432,7 @@ export default function MissionsPage() {
                   <div>
                     <h2 className="text-base font-semibold text-white">{selected.title}</h2>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs" style={{ color: '#64748b' }}>{selected.agent_name}</span>
+                      <span className="text-xs" style={{ color: '#64748b' }}>{lang === 'EN' && selected.agent_name_en ? selected.agent_name_en : selected.agent_name}</span>
                       {selected.agent_team && <span className={`cat-badge ${TEAM_CAT_CLASS[selected.agent_team]}`} style={{ fontSize: '8px' }}>{TEAM_DISPLAY[selected.agent_team] || selected.agent_team}</span>}
                       <span className="font-orbitron px-2 py-0.5 rounded" style={{ fontSize: '9px', background: statusBg(selected.status), color: statusColor(selected.status) }}>
                         {selected.status.toUpperCase()}
@@ -445,17 +445,17 @@ export default function MissionsPage() {
                 </div>
                 <div className="flex gap-2">
                   {selected.status === 'pending' && !isStreaming && (
-                    <button onClick={() => executeMission(selected.id)} className="btn-deploy" style={{ padding: '8px 16px' }}>EXECUTE</button>
+                    <button onClick={() => executeMission(selected.id)} className="btn-deploy" style={{ padding: '8px 16px' }}>{t('missions_execute')}</button>
                   )}
                   {isStreaming && (
-                    <button onClick={stopMission} className="font-orbitron px-4 py-2 rounded text-xs font-bold text-white" style={{ background: '#ef4444', letterSpacing: '0.08em' }}>ABORT</button>
+                    <button onClick={stopMission} className="font-orbitron px-4 py-2 rounded text-xs font-bold text-white" style={{ background: '#ef4444', letterSpacing: '0.08em' }}>{t('missions_abort')}</button>
                   )}
                   {selected.status === 'failed' && !isStreaming && (
-                    <button onClick={() => retryMission(selected)} className="font-orbitron px-4 py-2 rounded text-xs font-bold" style={{ background: 'rgba(245,158,11,0.8)', color: '#fff', letterSpacing: '0.08em' }}>🔄 RETRY</button>
+                    <button onClick={() => retryMission(selected)} className="font-orbitron px-4 py-2 rounded text-xs font-bold" style={{ background: 'rgba(245,158,11,0.8)', color: '#fff', letterSpacing: '0.08em' }}>{t('missions_retry')}</button>
                   )}
                   {selected.status === 'done' && (
                     <>
-                      <button onClick={() => executeMission(selected.id)} className="font-orbitron px-4 py-2 rounded text-xs" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>RE-RUN</button>
+                      <button onClick={() => executeMission(selected.id)} className="font-orbitron px-4 py-2 rounded text-xs" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b', letterSpacing: '0.08em' }}>{t('missions_rerun')}</button>
                       <button
                         onClick={async () => {
                           const output = streamOutput || selected.output || ''
@@ -487,31 +487,31 @@ export default function MissionsPage() {
                 </div>
               </div>
               <div className="mt-3 rounded-lg p-3" style={{ background: '#0A0709', border: '1px solid #181218' }}>
-                <div className="font-orbitron mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>MISSION BRIEF</div>
+                <div className="font-orbitron mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>{t('missions_mission_brief')}</div>
                 <div className="text-sm" style={{ color: '#94a3b8' }}>{selected.description}</div>
               </div>
             </div>
 
             <div className="flex-1 overflow-hidden flex flex-col">
               <div className="flex-shrink-0 px-5 py-3 flex items-center justify-between border-b" style={{ borderColor: '#181218' }}>
-                <span className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>OUTPUT TERMINAL</span>
+                <span className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>{t('missions_output_terminal')}</span>
                 {isStreaming && (
                   <div className="flex items-center gap-2">
                     <span className="status-dot working" />
-                    <span className="font-orbitron" style={{ fontSize: '9px', color: '#10b981' }}>PROCESSING...</span>
+                    <span className="font-orbitron" style={{ fontSize: '9px', color: '#10b981' }}>{t('missions_processing')}</span>
                   </div>
                 )}
                 {streamOutput && !isStreaming && (
                   <button onClick={() => navigator.clipboard.writeText(streamOutput)}
                     className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>
-                    COPY
+                    {t('missions_copy')}
                   </button>
                 )}
               </div>
               <div ref={outputRef} className="flex-1 overflow-y-auto p-5 terminal">
                 {!streamOutput && !isStreaming ? (
                   <span style={{ color: '#1f2937' }}>
-                    {selected.status === 'pending' ? '// PRESS EXECUTE TO START AGENT' : '// NO OUTPUT'}
+                    {selected.status === 'pending' ? t('missions_press_execute') : t('missions_no_output')}
                   </span>
                 ) : (
                   <>{streamOutput}{isStreaming && <span className="text-green-400">█</span>}</>
@@ -531,7 +531,7 @@ export default function MissionsPage() {
                 <span style={{ fontSize: '18px' }}>🏢</span>
                 <span className="font-orbitron text-xs font-bold text-white" style={{ letterSpacing: '0.08em' }}>DEPLOY TO TEAM</span>
               </div>
-              <p className="mt-1" style={{ fontSize: '10px', color: '#475569' }}>เลขาจะวิเคราะห์งาน แบ่งย่อย และส่งให้แต่ละคนในทีมอัตโนมัติ</p>
+              <p className="mt-1" style={{ fontSize: '10px', color: '#475569' }}>{t('missions_team_analyze_hint')}</p>
             </div>
             <div className="p-5 space-y-4">
               {!deployResult ? (
@@ -539,13 +539,13 @@ export default function MissionsPage() {
                   {/* Context Template Picker */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>CONTEXT TEMPLATE</label>
+                      <label className="font-orbitron" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>{t('missions_context_template')}</label>
                       <button
                         onClick={() => setShowTeamTplPicker(v => !v)}
                         className="font-orbitron px-2 py-0.5 rounded transition-all"
                         style={{ fontSize: '7px', background: showTeamTplPicker ? 'rgba(45,127,255,0.2)' : '#181218', border: `1px solid ${showTeamTplPicker ? '#2d7fff44' : '#2A1622'}`, color: showTeamTplPicker ? '#2d7fff' : '#374151', letterSpacing: '0.05em' }}
                       >
-                        {showTeamTplPicker ? '▲ HIDE' : '▼ PICK TEMPLATE'}
+                        {showTeamTplPicker ? t('missions_hide_tpl') : t('missions_pick_tpl')}
                       </button>
                     </div>
                     {showTeamTplPicker && (
@@ -585,10 +585,10 @@ export default function MissionsPage() {
                     )}
                   </div>
                   <div>
-                    <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>งานที่ต้องการ</label>
+                    <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>{t('missions_task_input_label')}</label>
                     <textarea
                       rows={7}
-                      placeholder="อธิบายงานที่ต้องการให้ทีมทำ หรือเลือก Template ด้านบน&#10;&#10;เช่น สร้าง Web App ขาย e-commerce&#10;Tech Stack: Next.js + PostgreSQL&#10;Features: product listing, cart, checkout"
+                      placeholder={t('missions_task_placeholder')}
                       value={teamForm.description}
                       onChange={(e) => setTeamForm(f => ({ ...f, description: e.target.value }))}
                       className="gank-input resize-none"
@@ -612,7 +612,7 @@ export default function MissionsPage() {
                   {deploying && (
                     <div className="rounded-lg p-3 flex items-center gap-3" style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)' }}>
                       <div className="typing-dots"><span /><span /><span /></div>
-                      <span className="font-orbitron" style={{ fontSize: '9px', color: '#a855f7' }}>เลขากำลังวิเคราะห์งาน...</span>
+                      <span className="font-orbitron" style={{ fontSize: '9px', color: '#a855f7' }}>{t('missions_analyzing')}</span>
                     </div>
                   )}
                 </>
@@ -620,10 +620,10 @@ export default function MissionsPage() {
                 <div className="rounded-lg p-4 space-y-2" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)' }}>
                   <div className="flex items-center gap-2">
                     <span style={{ fontSize: '20px' }}>✅</span>
-                    <span className="font-orbitron" style={{ fontSize: '10px', color: '#22c55e' }}>แบ่งงานเสร็จแล้ว!</span>
+                    <span className="font-orbitron" style={{ fontSize: '10px', color: '#22c55e' }}>{t('missions_success_title')}</span>
                   </div>
                   <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                    สร้าง <strong className="text-white">{deployResult.tasksCreated} missions</strong> ให้ทีม — agents กำลังทำงาน
+                    <strong className="text-white">{deployResult.tasksCreated}</strong> {t('missions_success_body')}
                   </div>
                   <div className="font-orbitron" style={{ fontSize: '8px', color: '#374151' }}>PROJECT ID: {deployResult.projectMissionId}</div>
                 </div>
@@ -638,15 +638,15 @@ export default function MissionsPage() {
                     className="flex-1 font-orbitron py-2 rounded text-sm font-bold transition-all"
                     style={{ background: deploying || !teamForm.description ? '#2A1622' : 'rgba(168,85,247,0.8)', color: deploying || !teamForm.description ? '#374151' : '#fff', letterSpacing: '0.08em' }}
                   >
-                    {deploying ? 'กำลังวิเคราะห์...' : '🏢 DEPLOY TO TEAM'}
+                    {deploying ? t('missions_analyzing') : t('missions_deploy_to_team_btn')}
                   </button>
                   <button onClick={() => { setShowTeamModal(false); setDeployResult(null); setShowTeamTplPicker(false) }} className="px-4 py-2 rounded text-xs font-orbitron" style={{ background: '#181218', border: '1px solid #2A1622', color: '#64748b' }}>
-                    CANCEL
+                    {t('missions_cancel_team')}
                   </button>
                 </>
               ) : (
                 <button onClick={() => { setShowTeamModal(false); setDeployResult(null); setTeamForm({ description: '', priority: 'high' }); setShowTeamTplPicker(false) }} className="flex-1 btn-deploy">
-                  ดูผลลัพธ์
+                  {t('missions_view_result')}
                 </button>
               )}
             </div>
@@ -669,7 +669,7 @@ export default function MissionsPage() {
               <div>
                 <label className="font-orbitron block mb-1" style={{ fontSize: '9px', color: '#374151', letterSpacing: '0.08em' }}>AGENT</label>
                 <select value={form.agent_id} onChange={(e) => setForm((f) => ({ ...f, agent_id: e.target.value }))} className="gank-input">
-                  {agents.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.team})</option>)}
+                  {agents.map((a) => <option key={a.id} value={a.id}>{lang === 'EN' && a.name_en ? a.name_en : a.name} ({a.team})</option>)}
                 </select>
               </div>
               <div>

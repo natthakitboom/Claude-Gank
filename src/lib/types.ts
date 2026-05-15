@@ -29,6 +29,11 @@ export interface Mission {
   created_at: string
   completed_at: string | null
   agent?: Agent
+  agent_name?: string
+  agent_name_en?: string
+  agent_sprite?: string
+  agent_color?: string
+  agent_team?: string
 }
 
 export interface Memory {

@@ -4,8 +4,9 @@ import './globals.css'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { Users, Crosshair, Radio, Flag, Cpu, ChevronLeft, CalendarClock, FolderOpen, MessageCircle, BarChart2, GitBranch, RefreshCw, X, LayoutTemplate } from 'lucide-react'
+import { Users, Crosshair, Radio, Flag, Cpu, ChevronLeft, CalendarClock, FolderOpen, MessageCircle, BarChart2, GitBranch, RefreshCw, X, LayoutTemplate, LogOut, Activity } from 'lucide-react'
 import { LanguageProvider, useLanguage } from '@/lib/i18n'
+import { SessionProvider, useSession, signOut } from 'next-auth/react'
 
 const NAV_KEYS = [
   { href: '/agents',   key: 'nav_agents',   Icon: Users },
@@ -22,6 +23,52 @@ const NAV_KEYS = [
 ] as const
 
 type LogItem = { type: string; msg: string }
+
+function SidebarUser({ collapsed }: { collapsed: boolean }) {
+  const { data: session, status } = useSession()
+  if (status !== 'authenticated' || !session?.user) return null
+
+  const name = session.user.name ?? session.user.email ?? ''
+  const email = session.user.email ?? ''
+  const initials = name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
+
+  if (collapsed) {
+    return (
+      <button
+        onClick={() => signOut({ callbackUrl: '/login' })}
+        title={`Logout (${email})`}
+        className="flex items-center justify-center w-full rounded-lg py-1.5"
+        style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}
+      >
+        <LogOut size={13} style={{ color: '#ef4444' }} />
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-lg px-2.5 py-2" style={{ background: '#13101e', border: '1px solid #2d2848' }}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold" style={{ background: 'rgba(99,92,138,0.3)', color: '#c4bfe8' }}>
+          {initials}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-semibold truncate" style={{ color: '#c4bfe8' }}>{name}</div>
+          <div className="text-xs truncate" style={{ color: '#4b5563', fontSize: 10 }}>{email}</div>
+        </div>
+      </div>
+      <button
+        onClick={() => signOut({ callbackUrl: '/login' })}
+        className="flex items-center gap-1.5 w-full rounded px-2 py-1 text-xs transition-colors"
+        style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.15)', color: '#6b7280' }}
+        onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.4)' }}
+        onMouseLeave={e => { e.currentTarget.style.color = '#6b7280'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.15)' }}
+      >
+        <LogOut size={11} />
+        <span>Sign out</span>
+      </button>
+    </div>
+  )
+}
 
 function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const pathname = usePathname()
@@ -112,20 +159,33 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       {/* Logo */}
       <div className="px-4 py-5 border-b" style={{ borderColor: '#2d2848' }}>
         <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: '#1c1830', border: '1px solid #4a4275' }}>
-            <svg width="26" height="26" viewBox="0 0 28 28" fill="none">
+          <div className="flex-shrink-0 w-10 h-10 rounded-xl overflow-hidden" style={{ border: '1px solid #E8365D44' }}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="40" height="40">
               <defs>
-                <filter id="cglow"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-                <linearGradient id="cgrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#9b93c8"/><stop offset="100%" stopColor="#635C8A"/></linearGradient>
+                <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ff2d78"/>
+                  <stop offset="100%" stopColor="#7c3aed"/>
+                </linearGradient>
+                <filter id="sglow">
+                  <feGaussianBlur stdDeviation="3" result="blur"/>
+                  <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
               </defs>
-              <polygon points="14,2 24,7.5 24,18.5 14,24 4,18.5 4,7.5" fill="none" stroke="#9b93c8" strokeWidth="0.8" strokeOpacity="0.3"/>
-              <polygon points="14,5 21,9 21,17 14,21 7,17 7,9" fill="url(#cgrad)" fillOpacity="0.15" stroke="#9b93c8" strokeWidth="0.6" strokeOpacity="0.6"/>
-              <text x="9" y="17" fill="#c4bfe8" fontSize="8" fontFamily="monospace" fontWeight="bold" filter="url(#cglow)">CG</text>
+              <rect width="256" height="256" rx="48" fill="#0d0b14"/>
+              <rect x="32" y="56" width="40" height="152" rx="8" fill="url(#sg)" filter="url(#sglow)"/>
+              <rect x="88" y="96" width="40" height="112" rx="8" fill="url(#sg)" filter="url(#sglow)" opacity="0.9"/>
+              <rect x="128" y="96" width="40" height="112" rx="8" fill="url(#sg)" filter="url(#sglow)" opacity="0.9"/>
+              <rect x="184" y="56" width="40" height="152" rx="8" fill="url(#sg)" filter="url(#sglow)"/>
+              <rect x="32" y="56" width="192" height="14" rx="7" fill="url(#sg)" opacity="0.6"/>
+              <circle cx="52" cy="224" r="5" fill="#ff2d78" opacity="0.8"/>
+              <circle cx="108" cy="224" r="5" fill="#a855f7" opacity="0.8"/>
+              <circle cx="148" cy="224" r="5" fill="#a855f7" opacity="0.8"/>
+              <circle cx="204" cy="224" r="5" fill="#7c3aed" opacity="0.8"/>
             </svg>
           </div>
           {!collapsed && (
             <div>
-              <div className="font-bold leading-tight" style={{ fontSize: '15px', color: '#ede9f8' }}>Claude Gang</div>
+              <div className="font-bold leading-tight" style={{ fontSize: '15px', color: '#ede9f8' }}>MII Gang</div>
               <div className="text-xs mt-0.5" style={{ color: '#5a5680' }}>{t('cmd_center')}</div>
             </div>
           )}
@@ -191,6 +251,9 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           <RefreshCw size={13} style={{ color: updateAvailable ? '#fbbf24' : '#4b5563' }} />
           {!collapsed && <span className="text-xs font-semibold" style={{ color: updateAvailable ? '#fbbf24' : '#4b5563' }}>{updateAvailable ? `${t('update_btn')} (${updateBehind})` : t('update_latest')}</span>}
         </button>
+
+        {/* User info + logout (only when SSO session exists) */}
+        <SidebarUser collapsed={collapsed} />
 
         {/* Collapse toggle */}
         <button onClick={onToggle} className="flex items-center gap-2 text-gray-600 hover:text-gray-400 transition-colors w-full rounded-lg py-1.5" style={{ paddingLeft: collapsed ? 0 : '4px', justifyContent: collapsed ? 'center' : undefined }}>
@@ -357,13 +420,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="th">
       <head>
-        <title>CLAUDE GANG — Command Center</title>
+        <title>MII Gang — Command Center</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="/icon.svg?v=2" type="image/svg+xml" />
+        <link rel="icon" href="/favicon.png?v=2" type="image/png" sizes="64x64" />
+        <link rel="shortcut icon" href="/favicon.png?v=2" />
       </head>
       <body>
-        <LanguageProvider>
-          <LayoutShell>{children}</LayoutShell>
-        </LanguageProvider>
+        <SessionProvider>
+          <LanguageProvider>
+            <LayoutShell>{children}</LayoutShell>
+          </LanguageProvider>
+        </SessionProvider>
       </body>
     </html>
   )

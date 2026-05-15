@@ -425,7 +425,7 @@ function collectPhaseOutputs(db: any, parentMissionId: string, upToPhase: number
 
 function advanceProjectPhase(db: any, parentMissionId: string) {
   const siblings = db.prepare(
-    `SELECT id, title, status, phase, output, agent_id, qa_round FROM missions WHERE parent_mission_id = ?`
+    `SELECT id, title, status, phase, output, agent_id, qa_round, started_at FROM missions WHERE parent_mission_id = ?`
   ).all(parentMissionId) as any[]
 
   if (siblings.length === 0) return
@@ -451,8 +451,10 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
       console.log(`[phase] 🚑 Safety net: no Phase 0 found, firing Phase ${lowestPhase} directly`)
       for (const m of lowestMissions) {
         db.prepare(`UPDATE missions SET status = 'pending', created_at = datetime('now') WHERE id = ?`).run(m.id)
-        fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
-          .catch(e => console.error('[phase] safety-net spawn failed', m.id, e.message))
+        const _mId = m.id
+        setImmediate(() => {
+          runMission(db, _mId).catch(e => console.error('[phase] safety-net spawn failed', _mId, e.message))
+        })
       }
       return
     }
@@ -528,16 +530,13 @@ function advanceProjectPhase(db: any, parentMissionId: string) {
       }
 
       db.prepare(`UPDATE missions SET status = 'pending', created_at = datetime('now') WHERE id = ?`).run(m.id)
-      const fireUrl = `${BASE_URL}/api/missions/${m.id}/execute`
-      fetch(fireUrl, { method: 'POST' }).catch((e) => {
-        console.error('[phase] spawn failed for mission', m.id, e.message)
-        // Retry once after 3s — watchdog will catch anything still stuck after 30s
-        setTimeout(() => {
-          const still = db.prepare('SELECT status FROM missions WHERE id = ?').get(m.id) as any
-          if (still?.status === 'pending') {
-            fetch(fireUrl, { method: 'POST' }).catch(() => {})
-          }
-        }, 3000)
+      const _fireId = m.id
+      // setImmediate defers execution until after the current call stack unwinds,
+      // ensuring the DB write above is visible before runMission reads the row.
+      setImmediate(() => {
+        runMission(db, _fireId).catch((e) => {
+          console.error('[phase] direct execute failed for mission', _fireId, e.message)
+        })
       })
       console.log(`[phase] 🚀 fired ${m.id} (${m.title}) — Phase ${nextPhase}`)
     }
@@ -625,8 +624,9 @@ curl -s -X POST http://localhost:${webPort}/api/v1/auth/login \\
     VALUES (?, ?, ?, ?, 'high', 'pending', ?, 4)
   `).run(seedId, `[SEED] Demo Accounts — ${project.name}`, desc, agent.id, parentMissionId)
 
-  fetch(`${BASE_URL}/api/missions/${seedId}/execute`, { method: 'POST' })
-    .catch((e: any) => console.error('[auto-seed] spawn failed:', e.message))
+  setImmediate(() => {
+    runMission(db, seedId).catch((e: any) => console.error('[auto-seed] spawn failed:', e.message))
+  })
 
   console.log(`[auto-seed] 🌱 Spawned seed mission ${seedId} for project ${project.id}`)
 }
@@ -807,8 +807,9 @@ curl -s -c /tmp/cookies.txt -X POST http://localhost:<web_port>/api/auth/... \\
     VALUES (?, ?, ?, ?, 'high', 'pending', ?, NULL)
   `).run(deployId, `[DOCKER-DEPLOY] Round ${round} — ${project.name?.slice(0, 60)}`, desc, agent.id, parentMissionId)
 
-  fetch(`${BASE_URL}/api/missions/${deployId}/execute`, { method: 'POST' })
-    .catch((e) => console.error('[docker-deploy] spawn failed:', e.message))
+  setImmediate(() => {
+    runMission(db, deployId).catch((e) => console.error('[docker-deploy] spawn failed:', e.message))
+  })
 
   console.log(`[docker-deploy] 🐳 Spawned deploy mission ${deployId} (round ${round}) for project ${project.id}`)
 }
@@ -888,8 +889,9 @@ ${failedSummary}
     VALUES (?, ?, ?, ?, 'high', 'pending', ?, NULL)
   `).run(loopId, `[AUTO-FIX] Loop #${loopCount.c + 1} — ${progress}% complete`, desc, secretary.id, parentMissionId)
 
-  fetch(`${BASE_URL}/api/missions/${loopId}/execute`, { method: 'POST' })
-    .catch((e) => console.error('[auto-loop] spawn failed:', e.message))
+  setImmediate(() => {
+    runMission(db, loopId).catch((e) => console.error('[auto-loop] spawn failed:', e.message))
+  })
 
   console.log(`[auto-loop] 🔄 Spawned fix loop #${loopCount.c + 1} for ${parentMissionId} (${failed.length} failed, ${progress}% done)`)
 }
@@ -980,7 +982,9 @@ ${bugReport}
     VALUES (?, ?, ?, ?, 'high', 'pending', ?, 3, ?)
   `).run(fixId, `🔧 Bug Fix Round ${round}`, fixDescription, seniorDev.id, parentMissionId, round)
 
-  fetch(`${BASE_URL}/api/missions/${fixId}/execute`, { method: 'POST' }).catch((e) => console.error('[qa-loop] spawn failed for fix mission', fixId, e.message))
+  setImmediate(() => {
+    runMission(db, fixId).catch((e) => console.error('[qa-loop] direct execute failed for fix mission', fixId, e.message))
+  })
 
   // Mark QA for retest after fix completes
   db.prepare(`UPDATE missions SET status = 'waiting_retest', qa_round = ? WHERE id = ?`)
@@ -1012,7 +1016,10 @@ function checkRetestQA(db: any, parentMissionId: string) {
   db.prepare(`UPDATE missions SET description = ?, status = 'pending' WHERE id = ?`)
     .run(context + retestNote + desc, qaMission.id)
 
-  fetch(`${BASE_URL}/api/missions/${qaMission.id}/execute`, { method: 'POST' }).catch((e) => console.error('[qa-loop] spawn failed for QA retest', qaMission.id, e.message))
+  const _qaId = qaMission.id
+  setImmediate(() => {
+    runMission(db, _qaId).catch((e) => console.error('[qa-loop] direct execute failed for QA retest', _qaId, e.message))
+  })
   console.log(`[qa-loop] 🔄 re-running QA ${qaMission.id} (round ${qaMission.qa_round})`)
 }
 
@@ -1053,7 +1060,9 @@ ${bugReport}`
     VALUES (?, ?, ?, ?, 'critical', 'pending', ?, 3, 99)
   `).run(escalationId, '⚠️ QA Escalation — Tech Lead Review', desc, techLead.id, parentMissionId)
 
-  fetch(`${BASE_URL}/api/missions/${escalationId}/execute`, { method: 'POST' }).catch((e) => console.error('[qa-escalate] spawn failed for escalation', escalationId, e.message))
+  setImmediate(() => {
+    runMission(db, escalationId).catch((e) => console.error('[qa-escalate] direct execute failed for escalation', escalationId, e.message))
+  })
 }
 
 // After secretary mission completes, parse ---TASKS--- and spawn sub-missions
@@ -1208,7 +1217,10 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
 
     // Only fire Phase 0 tasks immediately
     if (phase === 0) {
-      fetch(`${BASE_URL}/api/missions/${subId}/execute`, { method: 'POST' }).catch((e) => console.error('[tasks] spawn failed for sub-mission', subId, e.message))
+      const _subId = subId
+      setImmediate(() => {
+        runMission(db, _subId).catch((e) => console.error('[tasks] direct execute failed for sub-mission', _subId, e.message))
+      })
     }
   }
 
@@ -1231,9 +1243,10 @@ function spawnSecretarySubMissions(db: any, parentMissionId: string, output: str
         }
         for (const m of lowestMissions) {
           db.prepare(`UPDATE missions SET status = 'pending' WHERE id = ?`).run(m.id)
-          fetch(`${BASE_URL}/api/missions/${m.id}/execute`, { method: 'POST' })
-            .catch(e => console.error('[tasks] spawn failed for min-phase mission', m.id, e.message))
-          console.log(`[secretary] 🚀 fired Phase ${minPhase} directly: ${m.id} (${m.title})`)
+          const _mId = m.id
+          const _mTitle = m.title
+          runMission(db, _mId).catch(e => console.error('[tasks] direct execute failed for min-phase mission', _mId, e.message))
+          console.log(`[secretary] 🚀 fired Phase ${minPhase} directly: ${_mId} (${_mTitle})`)
         }
       } catch (e) { console.error('[secretary] min-phase fire error:', e) }
     })
@@ -1344,7 +1357,10 @@ function _handleSingleSendTo(db: any, sourceMissionId: string, mission: any, ful
       // advanceProjectPhase() gate checks. NULL overrides column DEFAULT 0.
     )
 
-    fetch(`${BASE_URL}/api/missions/${spawnedMissionId}/execute`, { method: 'POST' }).catch((e) => console.error('[n2n] spawn failed for mission', spawnedMissionId, e.message))
+    const _n2nId = spawnedMissionId
+    setImmediate(() => {
+      runMission(db, _n2nId).catch((e) => console.error('[n2n] direct execute failed for mission', _n2nId, e.message))
+    })
     console.log(`[n2n] 🔀 ${mission.agent_name} → ${targetAgent.name} | hop ${currentHopCount + 1} | mission ${spawnedMissionId}`)
   }
 
@@ -1357,6 +1373,168 @@ function _handleSingleSendTo(db: any, sourceMissionId: string, mission: any, ful
   })
   db.prepare(`INSERT INTO messages (id, from_agent, to_agent, mission_id, type, content, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(msgId, mission.agent_id, targetAgent.id, sourceMissionId, type, message, metadata)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// afterMissionDone — single function for all post-completion work
+//
+// Called by every execution path (Ollama, Claude CLI success, streaming-error
+// catch block) AFTER the mission row has been marked done and the agent set
+// to idle.  SSE close (send/controller.close) remains in each path.
+//
+// Parameters:
+//   db          — better-sqlite3 database handle
+//   missionId   — params.id (string)
+//   mission     — full mission row + agent fields
+//   fullOutput  — complete text output produced by the agent
+//   workDir     — project work directory (null if not a project mission)
+//   tokensUsed  — optional token count for notify message (defaults to char estimate)
+// ═══════════════════════════════════════════════════════════════════════════
+async function afterMissionDone(
+  db: any,
+  missionId: string,
+  mission: any,
+  fullOutput: string,
+  workDir: string | null,
+  tokensUsed?: number,
+) {
+  const estimatedTokens = tokensUsed ?? Math.round(fullOutput.length / 4)
+
+  // 1. Secretary / delegator: spawn sub-missions from ---TASKS--- block ────
+  const isSecretary = (mission.agent_name as string)?.includes('เลขา') ||
+    (mission.agent_name as string)?.toLowerCase().includes('secretary') ||
+    (mission as any).agent_role?.toLowerCase().includes('coordinator')
+  const isDelegator = isSecretary ||
+    (mission.title as string)?.startsWith('[AUDIT]') ||
+    (mission.title as string)?.startsWith('[N2N FIX]')
+
+  if (isDelegator && fullOutput.includes('---TASKS---')) {
+    try {
+      spawnSecretarySubMissions(db, missionId, fullOutput, (mission as any).priority || 'normal')
+    } catch (e) {
+      console.error('[secretary-delegate]', e)
+    }
+  }
+
+  // 2. Secretary MINI-TASKS fallback ───────────────────────────────────────
+  if (isSecretary && fullOutput.includes('---MINI-TASKS---') && !fullOutput.includes('---TASKS---')) {
+    try {
+      const miniMatch = fullOutput.match(/---MINI-TASKS---\s*([\s\S]*?)\s*---END---/)
+      if (miniMatch) {
+        const miniTasks = JSON.parse(miniMatch[1].trim())
+        if (Array.isArray(miniTasks) && miniTasks.length > 0) {
+          const fakeTasksBlock = JSON.stringify({ project: null, tasks: miniTasks.map((t: any) => ({ ...t, phase: 0 })) })
+          const wrappedOutput = fullOutput + `\n\n---TASKS---\n${fakeTasksBlock}\n---END---`
+          spawnSecretarySubMissions(db, missionId, wrappedOutput, (mission as any).priority || 'normal')
+          console.log(`[secretary] 🔀 MINI-TASKS fallback → converted ${miniTasks.length} tasks to TASKS format`)
+        }
+      }
+    } catch (e) {
+      console.error('[secretary-mini-tasks-fallback]', e)
+    }
+  }
+
+  // 3. N2N: ---SEND_TO--- delegation ───────────────────────────────────────
+  if (fullOutput.includes('---SEND_TO---')) {
+    try { handleSendTo(db, missionId, mission, fullOutput) } catch (e) { console.error('[n2n-send-to]', e) }
+  }
+
+  // 4. ---RESULT--- structured completion block ────────────────────────────
+  if (fullOutput.includes('---RESULT---')) {
+    try { handleResultBlock(db, missionId, mission, fullOutput) } catch (e) { console.error('[result-block]', e) }
+  }
+
+  // 5. ---PHASE_GATE--- block ───────────────────────────────────────────────
+  if (fullOutput.includes('---PHASE_GATE---')) {
+    try { handlePhaseGateBlock(db, missionId, mission, fullOutput) } catch (e) { console.error('[phase-gate-block]', e) }
+  }
+
+  // 6. ---JIRA--- block (async) ─────────────────────────────────────────────
+  if (fullOutput.includes('---JIRA---')) {
+    try { await handleJiraBlock(db, fullOutput) } catch (e) { console.error('[jira-block]', e) }
+  }
+
+  // 7. Phase advancement ───────────────────────────────────────────────────
+  const parentId = (mission as any).parent_mission_id
+  if (parentId) {
+    try {
+      const isBugFix = (mission.title as string)?.startsWith('🔧 Bug Fix Round')
+      if (isBugFix) {
+        checkRetestQA(db, parentId)
+      } else {
+        advanceProjectPhase(db, parentId)
+        autoLoopProjectFix(db, parentId)
+      }
+    } catch (e) {
+      console.error('[phase-advance]', e)
+    }
+  }
+
+  // 8. Memory save ──────────────────────────────────────────────────────────
+  const isSkillUpdate = (mission.title as string)?.includes('[Skill Update]')
+  const keyLearnMatch = fullOutput.match(/---KEY LEARNINGS---\s*([\s\S]*?)(?:---END---|$)/)
+
+  let memContent: string
+  let memImportance: number
+
+  if (keyLearnMatch && keyLearnMatch[1].trim().length > 0) {
+    memContent = `[Skill Update] ${mission.agent_name}:\n${keyLearnMatch[1].trim().slice(0, 2000)}`
+    memImportance = 9
+  } else if (isSkillUpdate) {
+    memContent = `[Skill Update] ${mission.agent_name}:\n${fullOutput.slice(0, 1500)}`
+    memImportance = 8
+  } else {
+    memContent = `ภารกิจ: ${mission.title} - ${fullOutput.slice(0, 200)}...`
+    memImportance = 7
+  }
+
+  const memId = `mem-${uuidv4().slice(0, 8)}`
+  db.prepare(`
+    INSERT INTO memory (id, agent_id, mission_id, content, summary, importance)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(memId, mission.agent_id, missionId, memContent, mission.title, memImportance)
+
+  // 9. Messages insert ──────────────────────────────────────────────────────
+  const msgId = `msg-${uuidv4().slice(0, 8)}`
+  db.prepare(`
+    INSERT INTO messages (id, from_agent, mission_id, type, content)
+    VALUES (?, ?, ?, 'result', ?)
+  `).run(msgId, mission.agent_id, missionId, `เสร็จสิ้นภารกิจ: ${mission.title}`)
+
+  // 10. autoNotify ──────────────────────────────────────────────────────────
+  const notifyEvent = isSkillUpdate ? 'skill_update' : 'done'
+  const outputPreview = fullOutput.replace(/---KEY LEARNINGS---[\s\S]*/, '').trim().slice(0, 3000)
+  const notifyMsg = [
+    `✅ Mission completed successfully`,
+    ``,
+    `📊 Tokens: ${estimatedTokens.toLocaleString()} | Output: ${fullOutput.length.toLocaleString()} chars`,
+    ``,
+    `💬 Output:`,
+    outputPreview + (fullOutput.length > 3000 ? '\n\n... (ดูต่อใน Dashboard)' : ''),
+  ].join('\n')
+  autoNotify(
+    notifyEvent as 'done' | 'skill_update',
+    mission.title,
+    notifyMsg,
+    mission.agent_name,
+    mission.agent_id,
+  )
+
+  // 11. gitAutoCommit ───────────────────────────────────────────────────────
+  if (workDir) {
+    const missionPhase = (mission as any).phase
+    const PHASE_TAGS: Record<number, string> = {
+      0: 'phase-0-kickoff',
+      1: 'phase-1-design',
+      2: 'phase-2-dev',
+      3: 'phase-3-qa',
+      4: 'phase-4-integration',
+    }
+    const tagLabel = missionPhase !== undefined && missionPhase !== null
+      ? PHASE_TAGS[Number(missionPhase)]
+      : undefined
+    gitAutoCommit(workDir, mission.title as string, mission.agent_name as string, missionPhase, tagLabel)
+  }
 }
 
 // ── Handle ---RESULT--- block: agent reports structured completion ─────────
@@ -1395,6 +1573,544 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 9001}`
+
+// ── runMission ────────────────────────────────────────────────────────────────
+// Core execution logic — runs the agent (Claude CLI or Ollama), calls
+// afterMissionDone, and returns. No HTTP round-trip needed.
+//
+// onChunk: optional SSE streaming callback. When called from the POST handler,
+//          pass a function that enqueues SSE events to the browser. When called
+//          internally (phase advance, sub-mission spawn), omit it — fire-and-forget.
+// ─────────────────────────────────────────────────────────────────────────────
+async function runMission(
+  db: any,
+  missionId: string,
+  onChunk?: (event: Record<string, unknown>) => void,
+): Promise<void> {
+  const mission = db.prepare(`
+    SELECT m.*, a.name as agent_name, a.role as agent_role, a.sprite as agent_sprite,
+           a.model as agent_model, a.system_prompt as agent_system_prompt,
+           a.personality as agent_personality,
+           (
+             SELECT p.work_dir FROM projects p
+             WHERE p.mission_id = m.parent_mission_id
+               AND p.work_dir IS NOT NULL AND p.work_dir != ''
+             LIMIT 1
+           ) as project_work_dir,
+           (
+             SELECT pt.figma_design_context FROM projects p
+             JOIN project_templates pt ON pt.id = p.template_id
+             WHERE p.mission_id = m.parent_mission_id
+               AND pt.figma_design_context IS NOT NULL AND pt.figma_design_context != ''
+             LIMIT 1
+           ) as template_figma_context,
+           (
+             SELECT pt.figma_url FROM projects p
+             JOIN project_templates pt ON pt.id = p.template_id
+             WHERE p.mission_id = m.parent_mission_id
+               AND pt.figma_url IS NOT NULL AND pt.figma_url != ''
+             LIMIT 1
+           ) as template_figma_url,
+           (
+             SELECT pt.name FROM projects p
+             JOIN project_templates pt ON pt.id = p.template_id
+             WHERE p.mission_id = m.parent_mission_id
+             LIMIT 1
+           ) as template_name
+    FROM missions m JOIN agents a ON m.agent_id = a.id WHERE m.id = ?
+  `).get(missionId) as Record<string, string> | undefined
+
+  if (!mission) throw new Error(`runMission: mission ${missionId} not found`)
+  if (mission.status === 'running') return // already running — skip silently
+
+  db.prepare("UPDATE missions SET status = 'running', started_at = CURRENT_TIMESTAMP WHERE id = ?").run(missionId)
+  db.prepare("UPDATE agents SET status = 'working' WHERE id = ?").run(mission.agent_id)
+
+  const memories = db.prepare(`
+    SELECT content FROM memory WHERE agent_id = ? ORDER BY importance DESC, created_at DESC LIMIT 5
+  `).all(mission.agent_id) as { content: string }[]
+
+  const memoryContext = memories.length > 0
+    ? `\n\n## ความทรงจำล่าสุดของคุณ:\n${memories.map((m, i) => `${i + 1}. ${m.content}`).join('\n')}`
+    : ''
+
+  const fs = require('fs')
+  const workDir: string | null = mission.project_work_dir && fs.existsSync(mission.project_work_dir)
+    ? mission.project_work_dir
+    : null
+
+  const workDirContext = workDir
+    ? `\n\n## 📁 Project Working Directory\nคุณกำลังทำงานอยู่ใน: \`${workDir}\`\nไฟล์ทั้งหมดในโปรเจคนี้อยู่ที่ path นี้ — ใช้ tools อ่าน/เขียนไฟล์ที่ path นี้ได้เลย`
+    : ''
+
+  const figmaContext = mission.template_figma_context
+    ? `\n\n## 🎨 Design System จาก Template: ${mission.template_name || 'Project Template'}\n` +
+      (mission.template_figma_url ? `Figma URL: ${mission.template_figma_url}\n\n` : '') +
+      `**ต้องทำ UI/Design ตาม design system นี้ทุกครั้ง — ห้ามใช้ค่าสีหรือ font อื่น:**\n${mission.template_figma_context}`
+    : ''
+
+  const systemPrompt = `${mission.agent_system_prompt}${memoryContext}${workDirContext}${figmaContext}
+
+## บุคลิก: ${mission.agent_personality}
+## วันที่ปัจจุบัน: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+
+คุณกำลังทำงานในฐานะ AI Agent ในระบบ Multi-Agent Dashboard ตอบให้ครบถ้วนและมีประโยชน์`
+
+  const isSecretaryAgent = (mission.agent_name as string)?.includes('เลขา') ||
+    (mission.agent_name as string)?.toLowerCase().includes('secretary')
+  let userPrompt = `## ภารกิจ: ${mission.title}\n\n${mission.description}`
+  if (isSecretaryAgent && !mission.description?.includes('---TASKS---') && !mission.description?.includes('รายชื่อสมาชิกทีม')) {
+    const allAgents = db.prepare('SELECT id, name, role, team FROM agents ORDER BY team, name').all() as any[]
+    const groups: Record<string, any[]> = {}
+    for (const a of allAgents) {
+      if (!groups[a.team]) groups[a.team] = []
+      groups[a.team].push(a)
+    }
+    const roster = Object.entries(groups).map(([team, members]) =>
+      `## ทีม ${team}\n` + members.map((a: any) => `- ${a.name} (${a.role})`).join('\n')
+    ).join('\n\n')
+    userPrompt += `\n\n---\n## รายชื่อสมาชิกทีมที่สามารถรับงานได้\n\n${roster}\n\n---\nวิเคราะห์งานข้างต้น แบ่งงานย่อยให้สมาชิกที่เหมาะสม แล้ว output ---TASKS--- block ตามรูปแบบในคำสั่งของคุณ`
+  }
+
+  let fullOutput = ''
+
+  const send = (data: Record<string, unknown>) => {
+    if (onChunk) onChunk(data)
+  }
+
+  send({ type: 'start', mission_id: missionId, agent: mission.agent_name })
+
+  try {
+    const modelArg = mission.agent_model || 'claude-haiku-4-5-20251001'
+    const isOllama = modelArg.startsWith('ollama:')
+
+    // ── Ollama execution path ───────────────────────────────────────────────
+    if (isOllama) {
+      const ollamaModel = modelArg.slice('ollama:'.length)
+      const ollamaUrl = getOllamaBaseUrl(db)
+
+      const ollamaRes = await fetch(`${ollamaUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: ollamaModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          stream: true,
+        }),
+      })
+
+      if (!ollamaRes.ok || !ollamaRes.body) {
+        const errText = await ollamaRes.text().catch(() => '')
+        throw new Error(`Ollama error ${ollamaRes.status}: ${errText.slice(0, 200)}`)
+      }
+
+      const reader = ollamaRes.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
+      let totalTokens = 0
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() || ''
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          try {
+            const evt = JSON.parse(trimmed)
+            const chunk: string = evt.message?.content || ''
+            if (chunk) {
+              fullOutput += chunk
+              send({ type: 'chunk', text: chunk })
+              if (fullOutput.length % 80 < chunk.length) {
+                db.prepare('UPDATE missions SET output = ? WHERE id = ?').run(fullOutput, missionId)
+              }
+            }
+            if (evt.done && evt.eval_count) totalTokens = evt.eval_count
+          } catch {}
+        }
+      }
+
+      db.prepare('UPDATE missions SET output = ?, status = ?, completed_at = CURRENT_TIMESTAMP, tokens_used = ? WHERE id = ?')
+        .run(fullOutput, 'done', totalTokens, missionId)
+      db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
+
+      await afterMissionDone(db, missionId, mission, fullOutput, workDir, totalTokens)
+
+      send({ type: 'done', mission_id: missionId })
+      return
+    }
+
+    // ── Claude CLI execution path ───────────────────────────────────────────
+    const child = spawn(getClaudeCLI(db), [
+      '--print',
+      '--verbose',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--model', modelArg,
+      '--no-session-persistence',
+      '--dangerously-skip-permissions',
+      '--append-system-prompt', systemPrompt,
+    ], {
+      env: {
+        ...process.env,
+        HOME: process.env.HOME || require('os').homedir(),
+        // Strip Claude Code session key — CLI must use its own OAuth token
+        ANTHROPIC_API_KEY: undefined,
+        CLAUDE_CODE_SSE_PORT: undefined,
+        // Strip app-level vars that must not bleed into generated project containers
+        NEXTAUTH_URL: undefined,
+        NEXTAUTH_SECRET: undefined,
+        AUTH_SECRET: undefined,
+      } as NodeJS.ProcessEnv,
+      cwd: workDir || require('os').homedir(),
+    })
+
+    child.stdin.write(userPrompt)
+    child.stdin.end()
+
+    let buffer = ''
+    let lastTextLength = 0
+    let lastSaveLength = 0
+
+    const saveIncremental = () => {
+      const isFirst = lastSaveLength === 0
+      if (isFirst || fullOutput.length - lastSaveLength >= 80) {
+        db.prepare("UPDATE missions SET output = ? WHERE id = ?").run(fullOutput, missionId)
+        lastSaveLength = fullOutput.length
+      }
+    }
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString()
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          const evt = JSON.parse(trimmed)
+
+          if (evt.type === 'assistant' && evt.message?.content) {
+            for (const block of evt.message.content) {
+              if (block.type === 'text') {
+                const newText = (block.text as string).slice(lastTextLength)
+                if (newText) {
+                  fullOutput += newText
+                  send({ type: 'chunk', text: newText })
+                  lastTextLength = (block.text as string).length
+                  saveIncremental()
+                }
+              } else if (block.type === 'tool_use') {
+                const toolName: string = block.name || ''
+                const input: Record<string, unknown> = block.input || {}
+                let label = toolName
+                if (toolName === 'Read' || toolName === 'ReadFile') label = `📖 Read: ${input.file_path || input.path || ''}`
+                else if (toolName === 'Write' || toolName === 'WriteFile') label = `✏️ Write: ${input.file_path || input.path || ''}`
+                else if (toolName === 'Edit' || toolName === 'MultiEdit') label = `✏️ Edit: ${input.file_path || input.path || ''}`
+                else if (toolName === 'Bash') label = `⚡ Bash: ${String(input.command || '').slice(0, 60)}`
+                else if (toolName === 'Glob') label = `🔍 Glob: ${input.pattern || ''}`
+                else if (toolName === 'Grep') label = `🔍 Grep: ${input.pattern || ''}`
+                else if (toolName === 'LS') label = `📂 LS: ${input.path || ''}`
+                else if (toolName === 'TodoWrite') label = `📋 TodoWrite`
+                else if (toolName === 'WebFetch') label = `🌐 Fetch: ${String(input.url || '').slice(0, 60)}`
+                else label = `🔧 ${toolName}`
+                send({ type: 'tool', tool: toolName, label })
+              }
+            }
+          }
+        } catch {}
+      }
+    })
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      console.error('[claude-cli]', chunk.toString().trim())
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      const killTimer = setTimeout(() => {
+        console.warn(`[execute] ⏱️ Mission ${missionId} timed out after 30min — killing process`)
+        child.kill('SIGTERM')
+        setTimeout(() => child.kill('SIGKILL'), 3000)
+        reject(new Error('Mission timed out after 30 minutes'))
+      }, MISSION_TIMEOUT_MS)
+
+      child.on('close', (code) => {
+        clearTimeout(killTimer)
+        if (fullOutput.length > 0 || code === 0 || code === null) resolve()
+        else reject(new Error(`claude CLI exited with code ${code}`))
+      })
+      child.on('error', (err) => {
+        clearTimeout(killTimer)
+        reject(err)
+      })
+    })
+
+    const estimatedTokens = Math.round(fullOutput.length / 4)
+
+    db.prepare(`
+      UPDATE missions SET status = 'done', output = ?, tokens_used = ?, completed_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(fullOutput, estimatedTokens, missionId)
+
+    db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
+
+    await afterMissionDone(db, missionId, mission, fullOutput, workDir, estimatedTokens)
+
+    // ── Auto-save integration output to project ─────────────────────────────
+    if (Number(mission.phase) === 4 || String(mission.title).toLowerCase().includes('[integration]') || String(mission.title).toLowerCase().includes('[docker-deploy]')) {
+      try {
+        const integrationParentId = mission.parent_mission_id
+        if (integrationParentId) {
+          const project = db.prepare('SELECT id FROM projects WHERE mission_id = ?').get(integrationParentId) as { id: string } | undefined
+          if (project) {
+            let webPort: number | null = null
+            let adminerPort: number | null = null
+            let dbUser: string | null = null
+            let dbPass: string | null = null
+
+            let parsedDemoAccounts: { role: string; email: string; password: string }[] = []
+            const accessBlockMatch = fullOutput.match(/---ACCESS-INFO---\s*([\s\S]*?)\s*---END---/)
+            if (accessBlockMatch) {
+              try {
+                const info = JSON.parse(accessBlockMatch[1].trim())
+                webPort = info.web_port ? Number(info.web_port) : null
+                adminerPort = info.adminer_port ? Number(info.adminer_port) : null
+                dbUser = info.db_user ?? null
+                dbPass = info.db_password ?? null
+                if (Array.isArray(info.demo_accounts)) {
+                  parsedDemoAccounts = info.demo_accounts
+                }
+                console.log(`[integration] 📦 Parsed ---ACCESS-INFO--- block (accounts: ${parsedDemoAccounts.length})`)
+              } catch {}
+            }
+
+            const NON_WEB_PORTS = new Set([5432, 5433, 3306, 3307, 27017, 27018, 6379, 6380, 587, 465, 25, 2525, 5672, 15672])
+            const isWebPort = (p: number) => p >= 1024 && p <= 65535 && !NON_WEB_PORTS.has(p)
+
+            if (!webPort) {
+              const lines = fullOutput.split('\n')
+              for (const line of lines) {
+                const m = line.match(/(?:^|\|\s*)(?:App|Web App|Frontend|Web)\s*[|:]\s*(?:http:\/\/localhost:)?(\d{3,5})/i)
+                  || line.match(/NEXT_PUBLIC_APP_URL\s*=\s*["']?http:\/\/localhost:(\d{3,5})/i)
+                  || line.match(/http:\/\/localhost:(\d{3,5})[^\d].*(?:app|web|front|next|react)/i)
+                if (m) {
+                  const candidate = Number(m[1])
+                  if (isWebPort(candidate)) { webPort = candidate; break }
+                }
+              }
+            }
+            if (!adminerPort) {
+              const adminerMatch = fullOutput.match(/(?:CloudBeaver|Adminer|DB Admin|pgAdmin|db-admin)\s*[|:]\s*(?:http:\/\/localhost:)?(\d{3,5})/i)
+                || fullOutput.match(/http:\/\/localhost:(\d{3,5})[^\n]*(?:cloudbeaver|adminer|pgadmin|db.?admin)/i)
+              if (adminerMatch) adminerPort = Number(adminerMatch[1])
+            }
+            if (!dbUser) {
+              const dbUserMatch = fullOutput.match(/(?:POSTGRES_USER|DB_USER(?:NAME)?|db.?user(?:name)?)\s*[=:]\s*["'`]?(\w+)["'`]?/i)
+              dbUser = dbUserMatch ? dbUserMatch[1] : null
+            }
+            if (!dbPass) {
+              const dbPassMatch = fullOutput.match(/(?:POSTGRES_PASSWORD|DB_PASS(?:WORD)?|db.?pass(?:word)?)\s*[=:]\s*["'`]?([^\s"'`\n]+)["'`]?/i)
+              dbPass = dbPassMatch ? dbPassMatch[1] : null
+            }
+
+            ensureColumn(db, 'projects', 'integration_output', 'TEXT')
+            ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
+
+            const demoAccountsJson = parsedDemoAccounts.length > 0
+              ? JSON.stringify(parsedDemoAccounts)
+              : parseDemoAccountsJson(fullOutput)
+
+            const integrationOutput = fullOutput.slice(0, 20_000)
+
+            db.prepare(`
+              UPDATE projects SET
+                web_port           = COALESCE(?, web_port),
+                adminer_port       = COALESCE(?, adminer_port),
+                db_user            = COALESCE(?, db_user),
+                db_password        = COALESCE(?, db_password),
+                integration_output = ?,
+                demo_accounts_json = COALESCE(?, demo_accounts_json)
+              WHERE id = ?
+            `).run(webPort, adminerPort, dbUser, dbPass, integrationOutput, demoAccountsJson, project.id)
+
+            console.log(`[integration] 💾 Saved to project ${project.id}: web=${webPort} adminer=${adminerPort} user=${dbUser}`)
+
+            if (!demoAccountsJson) {
+              try {
+                const allPhase4 = db.prepare(`
+                  SELECT output FROM missions
+                  WHERE parent_mission_id = ? AND phase = 4 AND status = 'done'
+                  ORDER BY created_at DESC
+                `).all(integrationParentId) as { output: string }[]
+                const combined = allPhase4.map((m: any) => m.output || '').join('\n\n')
+                const rescanned = parseDemoAccountsJson(combined)
+                if (rescanned) {
+                  db.prepare('UPDATE projects SET demo_accounts_json = ? WHERE id = ?').run(rescanned, project.id)
+                  console.log(`[integration] 🔍 Auto-rescan found demo accounts for project ${project.id}`)
+                }
+              } catch {}
+            }
+
+            const finalProject = db.prepare('SELECT demo_accounts_json, mission_id FROM projects WHERE id = ?').get(project.id) as any
+            if (!finalProject?.demo_accounts_json) {
+              autoSeedDemoAccounts(db, integrationParentId)
+            }
+
+            const isDockerDeploy = String(mission.title).toLowerCase().includes('[docker-deploy]')
+            if (isDockerDeploy && !accessBlockMatch) {
+              console.warn(`[docker-deploy] ⚠️ Mission ${missionId} completed but no ---ACCESS-INFO--- found — retrying deploy`)
+              setTimeout(() => autoDockerDeploy(db, integrationParentId), 2000)
+            }
+          }
+        }
+      } catch (e) { console.error('[integration] Failed to save project info:', e) }
+    }
+
+    // ── Auto-merge demo accounts from ANY mission output ─────────────────────
+    if (fullOutput.includes('---DEMO-ACCOUNTS---')) {
+      try {
+        const parentId = mission.parent_mission_id
+        if (parentId) {
+          const project = db.prepare('SELECT id, demo_accounts_json FROM projects WHERE mission_id = ?').get(parentId) as { id: string; demo_accounts_json: string | null } | undefined
+          if (project) {
+            ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
+            const newAccounts = parseDemoAccounts(fullOutput)
+            if (newAccounts.length > 0) {
+              const existing: { role: string; email: string; password: string }[] = project.demo_accounts_json
+                ? JSON.parse(project.demo_accounts_json) : []
+              const emailMap = new Map(existing.map(a => [a.email, a]))
+              for (const a of newAccounts) {
+                const prev = emailMap.get(a.email)
+                if (!prev || a.password !== '—' || prev.password === '—') {
+                  emailMap.set(a.email, a)
+                }
+              }
+              const merged = Array.from(emailMap.values())
+              db.prepare('UPDATE projects SET demo_accounts_json = ? WHERE id = ?')
+                .run(JSON.stringify(merged), project.id)
+              console.log(`[accounts] 💾 Merged ${newAccounts.length} accounts into project ${project.id}`)
+            }
+          }
+        }
+      } catch (e) { console.error('[accounts] Failed to merge demo accounts:', e) }
+    }
+
+    send({
+      type: 'done',
+      mission_id: missionId,
+      tokens_used: estimatedTokens,
+      output_length: fullOutput.length,
+    })
+
+  } catch (error) {
+    const errMsg = String(error)
+
+    if (fullOutput.length > 0) {
+      // Agent produced output — streaming error only, treat as success
+      const estimatedTokens = Math.round(fullOutput.length / 4)
+      db.prepare(`
+        UPDATE missions SET status = 'done', output = ?, tokens_used = ?, completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(fullOutput, estimatedTokens, missionId)
+      db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
+
+      await afterMissionDone(db, missionId, mission, fullOutput, workDir, estimatedTokens)
+
+      // [DOCKER-DEPLOY] streaming-error path: check if deploy actually succeeded
+      if (String((mission as any).title || '').toLowerCase().includes('[docker-deploy]')) {
+        const dockerParentId = (mission as any).parent_mission_id
+        if (dockerParentId && !fullOutput.includes('---ACCESS-INFO---')) {
+          console.warn(`[docker-deploy] ⚠️ Streaming error path — no ACCESS-INFO, retry`)
+          setTimeout(() => autoDockerDeploy(db, dockerParentId), 3000)
+        }
+      }
+
+      send({ type: 'done', mission_id: missionId, tokens_used: estimatedTokens, output_length: fullOutput.length })
+    } else {
+      // No output — real failure
+      db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
+
+      const retryCount = (mission as any).retry_count || 0
+      const MAX_SELF_RETRY = 2
+
+      if (retryCount < MAX_SELF_RETRY) {
+        const attempt = retryCount + 1
+        const errorContext = [
+          ``,
+          `---`,
+          `⚠️ **ครั้งที่ ${attempt}/${MAX_SELF_RETRY + 1} — ความพยายามก่อนหน้าล้มเหลว**`,
+          `Error: ${errMsg.slice(0, 600)}`,
+          ``,
+          `กรุณาวิเคราะห์ error ข้างต้น และ:`,
+          `1. ระบุสาเหตุที่แท้จริง`,
+          `2. ปรับ approach ใหม่ที่แตกต่างออกไป`,
+          `3. ถ้าขาด context หรือ dependency → ระบุใน output และทำสิ่งที่ทำได้ก่อน`,
+          `---`,
+        ].join('\n')
+
+        db.prepare(`
+          UPDATE missions
+          SET status = 'pending',
+              retry_count = ?,
+              error = NULL,
+              description = description || ?
+          WHERE id = ?
+        `).run(attempt, errorContext, missionId)
+
+        console.log(`[self-retry] ♻️ Mission "${(mission.title as string).slice(0, 60)}" — auto-retry ${attempt}/${MAX_SELF_RETRY} (${missionId})`)
+
+        // Re-execute after short delay — direct call, no HTTP
+        setTimeout(() => {
+          runMission(db, missionId, onChunk).catch((e) => console.error('[self-retry] re-execute failed:', e.message))
+        }, 2000)
+
+      } else {
+        // Exhausted self-retries → mark failed and escalate
+        db.prepare("UPDATE missions SET status = 'failed', error = ? WHERE id = ?").run(errMsg, missionId)
+
+        const failNotifyMsg = [
+          `❌ Mission failed (${MAX_SELF_RETRY} self-retries exhausted)`,
+          ``,
+          `⚠️ Error:`,
+          errMsg.slice(0, 500),
+        ].join('\n')
+        autoNotify('failed', mission.title, failNotifyMsg, mission.agent_name, mission.agent_id)
+
+        const escalationLevel = (mission as any).escalation_level || 0
+        if (escalationLevel < 2) {
+          fetch(`${BASE_URL}/api/escalate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ missionId }),
+          }).catch((e) => console.error('[execute] escalate call failed for mission', missionId, e.message))
+        }
+
+        // Advance phase / trigger auto-loop fix
+        const failedParentId = (mission as any).parent_mission_id
+        if (failedParentId) {
+          try { advanceProjectPhase(db, failedParentId) } catch {}
+          try { autoLoopProjectFix(db, failedParentId) } catch {}
+
+          if (String((mission as any).title || '').toLowerCase().includes('[docker-deploy]')) {
+            console.warn(`[docker-deploy] ❌ Deploy mission failed — scheduling retry round`)
+            setTimeout(() => autoDockerDeploy(db, failedParentId), 3000)
+          }
+        }
+      }
+    }
+
+    send({ type: 'error', error: errMsg })
+    throw error  // re-throw so POST handler's catch can close the SSE stream
+  }
+}
 
 function getClaudeCLI(db: any): string {
   try {
@@ -1610,7 +2326,7 @@ function resetStaleMissions(db: any) {
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const db = getDb()
 
-  // Watchdog: throttled — runs at most once every 5 minutes, not on every request
+  // Watchdog: throttled — runs at most once per WATCHDOG_INTERVAL_MS
   const now = Date.now()
   if (now - _lastWatchdogRun >= WATCHDOG_INTERVAL_MS) {
     _lastWatchdogRun = now
@@ -1625,720 +2341,34 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     })
   }
 
-  const mission = db.prepare(`
-    SELECT m.*, a.name as agent_name, a.role as agent_role, a.sprite as agent_sprite,
-           a.model as agent_model, a.system_prompt as agent_system_prompt,
-           a.personality as agent_personality,
-           (
-             SELECT p.work_dir FROM projects p
-             WHERE p.mission_id = m.parent_mission_id
-               AND p.work_dir IS NOT NULL AND p.work_dir != ''
-             LIMIT 1
-           ) as project_work_dir,
-           (
-             SELECT pt.figma_design_context FROM projects p
-             JOIN project_templates pt ON pt.id = p.template_id
-             WHERE p.mission_id = m.parent_mission_id
-               AND pt.figma_design_context IS NOT NULL AND pt.figma_design_context != ''
-             LIMIT 1
-           ) as template_figma_context,
-           (
-             SELECT pt.figma_url FROM projects p
-             JOIN project_templates pt ON pt.id = p.template_id
-             WHERE p.mission_id = m.parent_mission_id
-               AND pt.figma_url IS NOT NULL AND pt.figma_url != ''
-             LIMIT 1
-           ) as template_figma_url,
-           (
-             SELECT pt.name FROM projects p
-             JOIN project_templates pt ON pt.id = p.template_id
-             WHERE p.mission_id = m.parent_mission_id
-             LIMIT 1
-           ) as template_name
-    FROM missions m JOIN agents a ON m.agent_id = a.id WHERE m.id = ?
-  `).get(params.id) as Record<string, string> | undefined
+  // Quick guard — read mission status before entering the stream
+  const missionCheck = db.prepare('SELECT status, started_at FROM missions WHERE id = ?').get(params.id) as { status: string; started_at: string | null } | undefined
+  if (!missionCheck) return new Response('Mission not found', { status: 404 })
+  if (missionCheck.status === 'running') return new Response('Mission already running', { status: 400 })
+  // Also block re-entry if started but status got confused (started_at set = already executing)
+  if (missionCheck.status === 'pending' && missionCheck.started_at) return new Response('Mission already started', { status: 400 })
 
-  if (!mission) {
-    return new Response('Mission not found', { status: 404 })
-  }
-
-  if (mission.status === 'running') {
-    return new Response('Mission already running', { status: 400 })
-  }
-
-  db.prepare("UPDATE missions SET status = 'running', started_at = CURRENT_TIMESTAMP WHERE id = ?").run(params.id)
-  db.prepare("UPDATE agents SET status = 'working' WHERE id = ?").run(mission.agent_id)
-
-  const memories = db.prepare(`
-    SELECT content FROM memory WHERE agent_id = ? ORDER BY importance DESC, created_at DESC LIMIT 5
-  `).all(mission.agent_id) as { content: string }[]
-
-  const memoryContext = memories.length > 0
-    ? `\n\n## ความทรงจำล่าสุดของคุณ:\n${memories.map((m, i) => `${i + 1}. ${m.content}`).join('\n')}`
-    : ''
-
-  const fs = require('fs')
-  const workDir: string | null = mission.project_work_dir && fs.existsSync(mission.project_work_dir)
-    ? mission.project_work_dir
-    : null
-
-  const workDirContext = workDir
-    ? `\n\n## 📁 Project Working Directory\nคุณกำลังทำงานอยู่ใน: \`${workDir}\`\nไฟล์ทั้งหมดในโปรเจคนี้อยู่ที่ path นี้ — ใช้ tools อ่าน/เขียนไฟล์ที่ path นี้ได้เลย`
-    : ''
-
-  // Inject template design system if this mission belongs to a project that uses a template with Figma context
-  const figmaContext = mission.template_figma_context
-    ? `\n\n## 🎨 Design System จาก Template: ${mission.template_name || 'Project Template'}\n` +
-      (mission.template_figma_url ? `Figma URL: ${mission.template_figma_url}\n\n` : '') +
-      `**ต้องทำ UI/Design ตาม design system นี้ทุกครั้ง — ห้ามใช้ค่าสีหรือ font อื่น:**\n${mission.template_figma_context}`
-    : ''
-
-  const systemPrompt = `${mission.agent_system_prompt}${memoryContext}${workDirContext}${figmaContext}
-
-## บุคลิก: ${mission.agent_personality}
-## วันที่ปัจจุบัน: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
-
-คุณกำลังทำงานในฐานะ AI Agent ในระบบ Multi-Agent Dashboard ตอบให้ครบถ้วนและมีประโยชน์`
-
-  // If this is a secretary agent, inject team roster so she knows who to delegate to
-  const isSecretaryAgent = (mission.agent_name as string)?.includes('เลขา') ||
-    (mission.agent_name as string)?.toLowerCase().includes('secretary')
-  let userPrompt = `## ภารกิจ: ${mission.title}\n\n${mission.description}`
-  if (isSecretaryAgent && !mission.description?.includes('---TASKS---') && !mission.description?.includes('รายชื่อสมาชิกทีม')) {
-    const allAgents = db.prepare('SELECT id, name, role, team FROM agents ORDER BY team, name').all() as any[]
-    const groups: Record<string, any[]> = {}
-    for (const a of allAgents) {
-      if (!groups[a.team]) groups[a.team] = []
-      groups[a.team].push(a)
-    }
-    const roster = Object.entries(groups).map(([team, members]) =>
-      `## ทีม ${team}\n` + members.map((a: any) => `- ${a.name} (${a.role})`).join('\n')
-    ).join('\n\n')
-    userPrompt += `\n\n---\n## รายชื่อสมาชิกทีมที่สามารถรับงานได้\n\n${roster}\n\n---\nวิเคราะห์งานข้างต้น แบ่งงานย่อยให้สมาชิกที่เหมาะสม แล้ว output ---TASKS--- block ตามรูปแบบในคำสั่งของคุณ`
-  }
-
+  // ── SSE streaming wrapper — delegates all execution to runMission ───────────
+  // runMission handles everything: agent spawn, afterMissionDone, DB writes.
+  // The POST handler's only job is to forward SSE events to the browser.
   const encoder = new TextEncoder()
-  let fullOutput = ''
 
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        } catch {}
       }
-
-      send({ type: 'start', mission_id: params.id, agent: mission.agent_name })
 
       try {
-        const modelArg = mission.agent_model || 'claude-haiku-4-5-20251001'
-        const isOllama = modelArg.startsWith('ollama:')
-
-        // ── Ollama execution path ─────────────────────────────────────────────
-        if (isOllama) {
-          const ollamaModel = modelArg.slice('ollama:'.length)
-          const ollamaUrl = getOllamaBaseUrl(db)
-
-          const ollamaRes = await fetch(`${ollamaUrl}/api/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: ollamaModel,
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
-              ],
-              stream: true,
-            }),
-          })
-
-          if (!ollamaRes.ok || !ollamaRes.body) {
-            const errText = await ollamaRes.text().catch(() => '')
-            throw new Error(`Ollama error ${ollamaRes.status}: ${errText.slice(0, 200)}`)
-          }
-
-          const reader = ollamaRes.body.getReader()
-          const dec = new TextDecoder()
-          let buf = ''
-          let totalTokens = 0
-
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buf += dec.decode(value, { stream: true })
-            const lines = buf.split('\n')
-            buf = lines.pop() || ''
-
-            for (const line of lines) {
-              const trimmed = line.trim()
-              if (!trimmed) continue
-              try {
-                const evt = JSON.parse(trimmed)
-                const chunk: string = evt.message?.content || ''
-                if (chunk) {
-                  fullOutput += chunk
-                  send({ type: 'chunk', text: chunk })
-                  if (fullOutput.length % 80 < chunk.length) {
-                    db.prepare('UPDATE missions SET output = ? WHERE id = ?').run(fullOutput, params.id)
-                  }
-                }
-                if (evt.done && evt.eval_count) totalTokens = evt.eval_count
-              } catch {}
-            }
-          }
-
-          db.prepare('UPDATE missions SET output = ?, status = ?, completed_at = CURRENT_TIMESTAMP, tokens_used = ? WHERE id = ?')
-            .run(fullOutput, 'done', totalTokens, params.id)
-          db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
-
-          handleResultBlock(db, params.id, mission, fullOutput)
-          handlePhaseGateBlock(db, params.id, mission, fullOutput)
-          try { handleSendTo(db, params.id, mission, fullOutput) } catch (e) { console.error('[n2n-send-to]', e) }
-          await handleJiraBlock(db, fullOutput)
-          if (mission.parent_mission_id) {
-            advanceProjectPhase(db, mission.parent_mission_id)
-            autoLoopProjectFix(db, mission.parent_mission_id)
-          }
-
-          autoNotify('done', mission.title as string, fullOutput.slice(0, 500), mission.agent_name as string, mission.agent_id as string)
-          if (workDir) gitAutoCommit(workDir, mission.title as string, mission.agent_name as string)
-          send({ type: 'done', mission_id: params.id })
-          controller.close()
-          return
-        }
-
-        // ── Claude CLI execution path ─────────────────────────────────────────
-        const child = spawn(getClaudeCLI(db), [
-          '--print',
-          '--verbose',
-          '--output-format', 'stream-json',
-          '--include-partial-messages',
-          '--model', modelArg,
-          '--no-session-persistence',
-          '--dangerously-skip-permissions',
-          '--append-system-prompt', systemPrompt,
-        ], {
-          env: {
-            ...process.env,
-            HOME: process.env.HOME || require('os').homedir(),
-            // Strip Claude Code session key — CLI must use its own OAuth token
-            ANTHROPIC_API_KEY: undefined,
-            CLAUDE_CODE_SSE_PORT: undefined,
-          } as NodeJS.ProcessEnv,
-          cwd: workDir || require('os').homedir(),
-        })
-
-        child.stdin.write(userPrompt)
-        child.stdin.end()
-
-        let buffer = ''
-        let lastTextLength = 0
-        let lastSaveLength = 0
-
-        const saveIncremental = () => {
-          // Save immediately on first chunk, then every 80 chars
-          const isFirst = lastSaveLength === 0
-          if (isFirst || fullOutput.length - lastSaveLength >= 80) {
-            db.prepare("UPDATE missions SET output = ? WHERE id = ?").run(fullOutput, params.id)
-            lastSaveLength = fullOutput.length
-          }
-        }
-
-        child.stdout.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString()
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            const trimmed = line.trim()
-            if (!trimmed) continue
-            try {
-              const evt = JSON.parse(trimmed)
-
-              if (evt.type === 'assistant' && evt.message?.content) {
-                for (const block of evt.message.content) {
-                  if (block.type === 'text') {
-                    const newText = (block.text as string).slice(lastTextLength)
-                    if (newText) {
-                      fullOutput += newText
-                      send({ type: 'chunk', text: newText })
-                      lastTextLength = (block.text as string).length
-                      saveIncremental()
-                    }
-                  }
-                }
-              }
-            } catch {}
-          }
-        })
-
-        child.stderr.on('data', (chunk: Buffer) => {
-          console.error('[claude-cli]', chunk.toString().trim())
-        })
-
-        await new Promise<void>((resolve, reject) => {
-          // Kill child if it runs too long (30 min timeout)
-          const killTimer = setTimeout(() => {
-            console.warn(`[execute] ⏱️ Mission ${params.id} timed out after 30min — killing process`)
-            child.kill('SIGTERM')
-            setTimeout(() => child.kill('SIGKILL'), 3000)
-            reject(new Error('Mission timed out after 30 minutes'))
-          }, MISSION_TIMEOUT_MS)
-
-          child.on('close', (code) => {
-            clearTimeout(killTimer)
-            // ถ้ามี output แล้ว ถือว่าสำเร็จไม่ว่า exit code จะเป็นอะไร
-            if (fullOutput.length > 0 || code === 0 || code === null) resolve()
-            else reject(new Error(`claude CLI exited with code ${code}`))
-          })
-          child.on('error', (err) => {
-            clearTimeout(killTimer)
-            reject(err)
-          })
-        })
-
-        const estimatedTokens = Math.round(fullOutput.length / 4)
-
-        db.prepare(`
-          UPDATE missions SET status = 'done', output = ?, tokens_used = ?, completed_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(fullOutput, estimatedTokens, params.id)
-
-        db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
-
-        // Auto-commit ไฟล์ที่ agent แก้ไขลง git
-        if (workDir) {
-          const missionPhase = (mission as any).phase
-          // Tag phase milestone commits so they're easy to find for rollback
-          const PHASE_TAGS: Record<number, string> = {
-            0: 'phase-0-kickoff',
-            1: 'phase-1-design',
-            2: 'phase-2-dev',
-            3: 'phase-3-qa',
-            4: 'phase-4-integration',
-          }
-          const tagLabel = missionPhase !== undefined && missionPhase !== null
-            ? PHASE_TAGS[Number(missionPhase)]
-            : undefined
-          gitAutoCommit(workDir, mission.title as string, mission.agent_name as string, missionPhase, tagLabel)
-        }
-
-        // --- Secretary / Audit delegation: any mission with ---TASKS--- block spawns sub-missions ---
-        const isSecretary = (mission.agent_name as string)?.includes('เลขา') ||
-          (mission.agent_name as string)?.toLowerCase().includes('secretary') ||
-          (mission as any).agent_role?.toLowerCase().includes('coordinator')
-        // Also allow AUDIT and N2N missions (title starts with [AUDIT] or [N2N]) to spawn sub-missions
-        const isDelegator = isSecretary ||
-          (mission.title as string)?.startsWith('[AUDIT]') ||
-          (mission.title as string)?.startsWith('[N2N FIX]')
-        if (isDelegator && fullOutput.includes('---TASKS---')) {
-          try {
-            spawnSecretarySubMissions(db, params.id, fullOutput, (mission as any).priority || 'normal')
-          } catch (e) {
-            console.error('[secretary-delegate]', e)
-          }
-        }
-
-        // --- Secretary fallback: if secretary outputs ---MINI-TASKS--- via execute route
-        // (normally handled by IDE frontend, but cover server-side context too)
-        if (isSecretary && fullOutput.includes('---MINI-TASKS---') && !fullOutput.includes('---TASKS---')) {
-          try {
-            const miniMatch = fullOutput.match(/---MINI-TASKS---\s*([\s\S]*?)\s*---END---/)
-            if (miniMatch) {
-              const miniTasks = JSON.parse(miniMatch[1].trim())
-              if (Array.isArray(miniTasks) && miniTasks.length > 0) {
-                // Convert to TASKS format (no phases — fire all immediately)
-                const fakeTasksBlock = JSON.stringify({ project: null, tasks: miniTasks.map((t: any) => ({ ...t, phase: 0 })) })
-                const wrappedOutput = fullOutput + `\n\n---TASKS---\n${fakeTasksBlock}\n---END---`
-                spawnSecretarySubMissions(db, params.id, wrappedOutput, (mission as any).priority || 'normal')
-                console.log(`[secretary] 🔀 MINI-TASKS fallback → converted ${miniTasks.length} tasks to TASKS format`)
-              }
-            }
-          } catch (e) {
-            console.error('[secretary-mini-tasks-fallback]', e)
-          }
-        }
-
-        // --- N2N: any agent can directly delegate to another agent via ---SEND_TO--- block ---
-        if (fullOutput.includes('---SEND_TO---')) {
-          try { handleSendTo(db, params.id, mission, fullOutput) } catch (e) { console.error('[n2n-send-to]', e) }
-        }
-
-        // --- RESULT block: structured completion report ---
-        if (fullOutput.includes('---RESULT---')) {
-          try { handleResultBlock(db, params.id, mission, fullOutput) } catch (e) { console.error('[result-block]', e) }
-        }
-
-        // --- PHASE_GATE block: phase gate check ---
-        if (fullOutput.includes('---PHASE_GATE---')) {
-          try { handlePhaseGateBlock(db, params.id, mission, fullOutput) } catch (e) { console.error('[phase-gate-block]', e) }
-        }
-
-        // --- JIRA block: create issue / transition / comment via Jira REST API ---
-        if (fullOutput.includes('---JIRA---')) {
-          try { await handleJiraBlock(db, fullOutput) } catch (e) { console.error('[jira-block]', e) }
-        }
-
-        // --- Phase advancement: if this sub-mission just completed, check if next phase should start ---
-        const parentId = (mission as any).parent_mission_id
-        if (parentId) {
-          try {
-            // First check if a QA mission is waiting for retest (bug fix just completed)
-            // Match the exact title format used in spawnBugFixLoop — avoid false matches
-            const isBugFix = mission.title?.startsWith('🔧 Bug Fix Round')
-            if (isBugFix) {
-              checkRetestQA(db, parentId)
-            } else {
-              advanceProjectPhase(db, parentId)
-            }
-          } catch (e) {
-            console.error('[phase-advance]', e)
-          }
-        }
-
-        // --- Smart memory saving ---
-        // For [Skill Update] missions: extract ---KEY LEARNINGS--- block, save with high importance
-        // For regular missions: save first 200 chars as before
-        const isSkillUpdate = mission.title?.includes('[Skill Update]')
-        const keyLearnMatch = fullOutput.match(/---KEY LEARNINGS---\s*([\s\S]*?)(?:---END---|$)/)
-
-        let memContent: string
-        let memImportance: number
-
-        if (keyLearnMatch && keyLearnMatch[1].trim().length > 0) {
-          // Structured KEY LEARNINGS block found — save it fully (up to 2000 chars)
-          memContent = `[Skill Update] ${mission.agent_name}:\n${keyLearnMatch[1].trim().slice(0, 2000)}`
-          memImportance = 9
-        } else if (isSkillUpdate) {
-          // Skill update but no structured block — save more of the output
-          memContent = `[Skill Update] ${mission.agent_name}:\n${fullOutput.slice(0, 1500)}`
-          memImportance = 8
-        } else {
-          // Regular mission — save short summary as before
-          memContent = `ภารกิจ: ${mission.title} - ${fullOutput.slice(0, 200)}...`
-          memImportance = 7
-        }
-
-        const memId = `mem-${uuidv4().slice(0, 8)}`
-        db.prepare(`
-          INSERT INTO memory (id, agent_id, mission_id, content, summary, importance)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(memId, mission.agent_id, params.id, memContent, mission.title, memImportance)
-
-        const msgId = `msg-${uuidv4().slice(0, 8)}`
-        db.prepare(`
-          INSERT INTO messages (id, from_agent, mission_id, type, content)
-          VALUES (?, ?, ?, 'result', ?)
-        `).run(msgId, mission.agent_id, params.id, `เสร็จสิ้นภารกิจ: ${mission.title}`)
-
-        // Auto-notify with rich content
-        const notifyEvent = isSkillUpdate ? 'skill_update' : 'done'
-        const outputPreview = fullOutput.replace(/---KEY LEARNINGS---[\s\S]*/, '').trim().slice(0, 3000)
-        const notifyMsg = [
-          `✅ Mission completed successfully`,
-          ``,
-          `📊 Tokens: ${estimatedTokens.toLocaleString()} | Output: ${fullOutput.length.toLocaleString()} chars`,
-          ``,
-          `💬 Output:`,
-          outputPreview + (fullOutput.length > 3000 ? '\n\n... (ดูต่อใน Dashboard)' : ''),
-        ].join('\n')
-        autoNotify(
-          notifyEvent as 'done' | 'skill_update',
-          mission.title,
-          notifyMsg,
-          mission.agent_name,
-          mission.agent_id,
-        )
-
-        // ── Auto-save integration output to project ─────────────────────────────
-        // If this is a phase-4 integration mission OR a docker-deploy mission,
-        // parse and save port/credential info automatically.
-        if (Number(mission.phase) === 4 || String(mission.title).toLowerCase().includes('[integration]') || String(mission.title).toLowerCase().includes('[docker-deploy]')) {
-          try {
-            const integrationParentId = mission.parent_mission_id  // distinct name — avoids shadow
-            if (integrationParentId) {
-              const project = db.prepare('SELECT id FROM projects WHERE mission_id = ?').get(integrationParentId) as { id: string } | undefined
-              if (project) {
-                // Primary: parse structured ---ACCESS-INFO--- block (more reliable than regex)
-                let webPort: number | null = null
-                let adminerPort: number | null = null
-                let dbUser: string | null = null
-                let dbPass: string | null = null
-
-                let parsedDemoAccounts: { role: string; email: string; password: string }[] = []
-                const accessBlockMatch = fullOutput.match(/---ACCESS-INFO---\s*([\s\S]*?)\s*---END---/)
-                if (accessBlockMatch) {
-                  try {
-                    const info = JSON.parse(accessBlockMatch[1].trim())
-                    webPort = info.web_port ? Number(info.web_port) : null
-                    adminerPort = info.adminer_port ? Number(info.adminer_port) : null
-                    dbUser = info.db_user ?? null
-                    dbPass = info.db_password ?? null
-                    // Parse demo_accounts from ACCESS-INFO block
-                    if (Array.isArray(info.demo_accounts)) {
-                      parsedDemoAccounts = info.demo_accounts
-                    }
-                    console.log(`[integration] 📦 Parsed ---ACCESS-INFO--- block (accounts: ${parsedDemoAccounts.length})`)
-                  } catch {}
-                }
-
-                // Fallback: regex heuristics (for old outputs without structured block)
-                // DB/infra ports that must NOT be matched as web_port
-                const NON_WEB_PORTS = new Set([5432, 5433, 3306, 3307, 27017, 27018, 6379, 6380, 587, 465, 25, 2525, 5672, 15672])
-                const isWebPort = (p: number) => p >= 1024 && p <= 65535 && !NON_WEB_PORTS.has(p)
-
-                if (!webPort) {
-                  // Only match lines that explicitly label the web/app URL — require "App:" "Web:" "Frontend:" prefix
-                  // Do NOT match bare "localhost:PORT" to avoid catching DB/adminer ports
-                  const lines = fullOutput.split('\n')
-                  for (const line of lines) {
-                    const m = line.match(/(?:^|\|\s*)(?:App|Web App|Frontend|Web)\s*[|:]\s*(?:http:\/\/localhost:)?(\d{3,5})/i)
-                      || line.match(/NEXT_PUBLIC_APP_URL\s*=\s*["']?http:\/\/localhost:(\d{3,5})/i)
-                      || line.match(/http:\/\/localhost:(\d{3,5})[^\d].*(?:app|web|front|next|react)/i)
-                    if (m) {
-                      const candidate = Number(m[1])
-                      if (isWebPort(candidate)) { webPort = candidate; break }
-                    }
-                  }
-                }
-                if (!adminerPort) {
-                  const adminerMatch = fullOutput.match(/(?:CloudBeaver|Adminer|DB Admin|pgAdmin|db-admin)\s*[|:]\s*(?:http:\/\/localhost:)?(\d{3,5})/i)
-                    || fullOutput.match(/http:\/\/localhost:(\d{3,5})[^\n]*(?:cloudbeaver|adminer|pgadmin|db.?admin)/i)
-                  if (adminerMatch) adminerPort = Number(adminerMatch[1])
-                }
-                if (!dbUser) {
-                  const dbUserMatch = fullOutput.match(/(?:POSTGRES_USER|DB_USER(?:NAME)?|db.?user(?:name)?)\s*[=:]\s*["'`]?(\w+)["'`]?/i)
-                  dbUser = dbUserMatch ? dbUserMatch[1] : null
-                }
-                if (!dbPass) {
-                  const dbPassMatch = fullOutput.match(/(?:POSTGRES_PASSWORD|DB_PASS(?:WORD)?|db.?pass(?:word)?)\s*[=:]\s*["'`]?([^\s"'`\n]+)["'`]?/i)
-                  dbPass = dbPassMatch ? dbPassMatch[1] : null
-                }
-
-                // Ensure columns exist (idempotent migration)
-                ensureColumn(db, 'projects', 'integration_output', 'TEXT')
-                ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
-
-                // Parse demo accounts: prefer ACCESS-INFO block, fallback to legacy parsers
-                const demoAccountsJson = parsedDemoAccounts.length > 0
-                  ? JSON.stringify(parsedDemoAccounts)
-                  : parseDemoAccountsJson(fullOutput)
-
-                // Cap integration_output to avoid storing MB of text in projects table
-                const integrationOutput = fullOutput.slice(0, 20_000)
-
-                db.prepare(`
-                  UPDATE projects SET
-                    web_port           = COALESCE(?, web_port),
-                    adminer_port       = COALESCE(?, adminer_port),
-                    db_user            = COALESCE(?, db_user),
-                    db_password        = COALESCE(?, db_password),
-                    integration_output = ?,
-                    demo_accounts_json = COALESCE(?, demo_accounts_json)
-                  WHERE id = ?
-                `).run(webPort, adminerPort, dbUser, dbPass, integrationOutput, demoAccountsJson, project.id)
-
-                console.log(`[integration] 💾 Saved to project ${project.id}: web=${webPort} adminer=${adminerPort} user=${dbUser}`)
-
-                // Auto-rescan if demo accounts still empty — combine all phase 4 outputs
-                if (!demoAccountsJson) {
-                  try {
-                    const allPhase4 = db.prepare(`
-                      SELECT output FROM missions
-                      WHERE parent_mission_id = ? AND phase = 4 AND status = 'done'
-                      ORDER BY created_at DESC
-                    `).all(integrationParentId) as { output: string }[]
-                    const combined = allPhase4.map((m: any) => m.output || '').join('\n\n')
-                    const rescanned = parseDemoAccountsJson(combined)
-                    if (rescanned) {
-                      db.prepare('UPDATE projects SET demo_accounts_json = ? WHERE id = ?').run(rescanned, project.id)
-                      console.log(`[integration] 🔍 Auto-rescan found demo accounts for project ${project.id}`)
-                    }
-                  } catch {}
-                }
-
-                // If still no demo accounts after all attempts → auto-seed
-                const finalProject = db.prepare('SELECT demo_accounts_json, mission_id FROM projects WHERE id = ?').get(project.id) as any
-                if (!finalProject?.demo_accounts_json) {
-                  autoSeedDemoAccounts(db, integrationParentId)
-                }
-
-                // [DOCKER-DEPLOY] done but no ACCESS-INFO → deploy didn't actually succeed → retry
-                const isDockerDeploy = String(mission.title).toLowerCase().includes('[docker-deploy]')
-                if (isDockerDeploy && !accessBlockMatch) {
-                  console.warn(`[docker-deploy] ⚠️ Mission ${params.id} completed but no ---ACCESS-INFO--- found — retrying deploy`)
-                  setTimeout(() => autoDockerDeploy(db, integrationParentId), 2000)
-                }
-              }
-            }
-          } catch (e) { console.error('[integration] Failed to save project info:', e) }
-        }
-
-        // ── Auto-merge demo accounts from ANY mission output ─────────────────────
-        // If any agent (IDE or SDLC) outputs ---DEMO-ACCOUNTS---, merge into project
-        if (fullOutput.includes('---DEMO-ACCOUNTS---')) {
-          try {
-            const parentId = mission.parent_mission_id
-            if (parentId) {
-              const project = db.prepare('SELECT id, demo_accounts_json FROM projects WHERE mission_id = ?').get(parentId) as { id: string; demo_accounts_json: string | null } | undefined
-              if (project) {
-                ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
-                const newAccounts = parseDemoAccounts(fullOutput)
-                if (newAccounts.length > 0) {
-                  // Merge with existing — dedup by email, new entries win
-                  const existing: { role: string; email: string; password: string }[] = project.demo_accounts_json
-                    ? JSON.parse(project.demo_accounts_json) : []
-                  const emailMap = new Map(existing.map(a => [a.email, a]))
-                  for (const a of newAccounts) {
-                    const prev = emailMap.get(a.email)
-                    // New entry wins only if it adds real data (non-placeholder password)
-                    // or there is no previous entry at all
-                    if (!prev || a.password !== '—' || prev.password === '—') {
-                      emailMap.set(a.email, a)
-                    }
-                  }
-                  const merged = Array.from(emailMap.values())
-                  db.prepare('UPDATE projects SET demo_accounts_json = ? WHERE id = ?')
-                    .run(JSON.stringify(merged), project.id)
-                  console.log(`[accounts] 💾 Merged ${newAccounts.length} accounts into project ${project.id}`)
-                }
-              }
-            }
-          } catch (e) { console.error('[accounts] Failed to merge demo accounts:', e) }
-        }
-
-        send({
-          type: 'done',
-          mission_id: params.id,
-          tokens_used: estimatedTokens,
-          output_length: fullOutput.length,
-        })
-
-        controller.close()
-      } catch (error) {
-        const errMsg = String(error)
-
-        if (fullOutput.length > 0) {
-          // Agent produced output — streaming error only, treat as success
-          const estimatedTokens = Math.round(fullOutput.length / 4)
-          db.prepare(`
-            UPDATE missions SET status = 'done', output = ?, tokens_used = ?, completed_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `).run(fullOutput, estimatedTokens, params.id)
-          db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
-
-          const memId = `mem-${uuidv4().slice(0, 8)}`
-          const isSkillUpdateErr = mission.title?.includes('[Skill Update]')
-          const keyLearnMatchErr = fullOutput.match(/---KEY LEARNINGS---\s*([\s\S]*?)(?:---END---|$)/)
-          let memContentErr: string
-          let memImportanceErr: number
-          if (keyLearnMatchErr && keyLearnMatchErr[1].trim().length > 0) {
-            memContentErr = `[Skill Update] ${mission.agent_name}:\n${keyLearnMatchErr[1].trim().slice(0, 2000)}`
-            memImportanceErr = 9
-          } else if (isSkillUpdateErr) {
-            memContentErr = `[Skill Update] ${mission.agent_name}:\n${fullOutput.slice(0, 1500)}`
-            memImportanceErr = 8
-          } else {
-            memContentErr = `ภารกิจ: ${mission.title} - ${fullOutput.slice(0, 200)}...`
-            memImportanceErr = 7
-          }
-          db.prepare(`
-            INSERT INTO memory (id, agent_id, mission_id, content, summary, importance)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).run(memId, mission.agent_id, params.id, memContentErr, mission.title, memImportanceErr)
-
-          const msgId = `msg-${uuidv4().slice(0, 8)}`
-          db.prepare(`
-            INSERT INTO messages (id, from_agent, mission_id, type, content)
-            VALUES (?, ?, ?, 'result', ?)
-          `).run(msgId, mission.agent_id, params.id, `เสร็จสิ้นภารกิจ: ${mission.title}`)
-
-          // [DOCKER-DEPLOY] streaming-error path: check if deploy actually succeeded
-          if (String((mission as any).title || '').toLowerCase().includes('[docker-deploy]')) {
-            const parentId = (mission as any).parent_mission_id
-            if (parentId && !fullOutput.includes('---ACCESS-INFO---')) {
-              console.warn(`[docker-deploy] ⚠️ Streaming error path — no ACCESS-INFO, retry`)
-              setTimeout(() => autoDockerDeploy(db, parentId), 3000)
-            }
-          }
-        } else {
-          // No output — real failure
-          db.prepare("UPDATE agents SET status = 'idle' WHERE id = ?").run(mission.agent_id)
-
-          const retryCount = (mission as any).retry_count || 0
-          const MAX_SELF_RETRY = 2
-
-          // ── Self-Retry: agent รู้จักแก้ตัวเองก่อน escalate ──────────────────
-          if (retryCount < MAX_SELF_RETRY) {
-            const attempt = retryCount + 1
-            const errorContext = [
-              ``,
-              `---`,
-              `⚠️ **ครั้งที่ ${attempt}/${MAX_SELF_RETRY + 1} — ความพยายามก่อนหน้าล้มเหลว**`,
-              `Error: ${errMsg.slice(0, 600)}`,
-              ``,
-              `กรุณาวิเคราะห์ error ข้างต้น และ:`,
-              `1. ระบุสาเหตุที่แท้จริง`,
-              `2. ปรับ approach ใหม่ที่แตกต่างออกไป`,
-              `3. ถ้าขาด context หรือ dependency → ระบุใน output และทำสิ่งที่ทำได้ก่อน`,
-              `---`,
-            ].join('\n')
-
-            db.prepare(`
-              UPDATE missions
-              SET status = 'pending',
-                  retry_count = ?,
-                  error = NULL,
-                  description = description || ?
-              WHERE id = ?
-            `).run(attempt, errorContext, params.id)
-
-            console.log(`[self-retry] ♻️ Mission "${(mission.title as string).slice(0, 60)}" — auto-retry ${attempt}/${MAX_SELF_RETRY} (${params.id})`)
-
-            // Re-execute after short delay
-            setTimeout(() => {
-              fetch(`${BASE_URL}/api/missions/${params.id}/execute`, { method: 'POST' })
-                .catch((e) => console.error('[self-retry] re-execute failed:', e.message))
-            }, 2000)
-
-          } else {
-            // Exhausted self-retries → mark failed and escalate
-            db.prepare("UPDATE missions SET status = 'failed', error = ? WHERE id = ?").run(errMsg, params.id)
-
-            const failNotifyMsg = [
-              `❌ Mission failed (${MAX_SELF_RETRY} self-retries exhausted)`,
-              ``,
-              `⚠️ Error:`,
-              errMsg.slice(0, 500),
-            ].join('\n')
-            autoNotify('failed', mission.title, failNotifyMsg, mission.agent_name, mission.agent_id)
-
-            const escalationLevel = (mission as any).escalation_level || 0
-            if (escalationLevel < 2) {
-              fetch(`${BASE_URL}/api/escalate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ missionId: params.id }),
-              }).catch((e) => console.error('[execute] escalate call failed for mission', params.id, e.message))
-            }
-
-            // Advance phase / trigger auto-loop fix
-            const failedParentId = (mission as any).parent_mission_id
-            if (failedParentId) {
-              try { advanceProjectPhase(db, failedParentId) } catch {}
-              // Also try autoLoopProjectFix immediately — don't wait for all phases
-              try { autoLoopProjectFix(db, failedParentId) } catch {}
-
-              // [DOCKER-DEPLOY] failed → auto-retry next round
-              if (String((mission as any).title || '').toLowerCase().includes('[docker-deploy]')) {
-                console.warn(`[docker-deploy] ❌ Deploy mission failed — scheduling retry round`)
-                setTimeout(() => autoDockerDeploy(db, failedParentId), 3000)
-              }
-            }
-          }
-        }
-
-        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errMsg })}\n\n`)) } catch {}
-        try { controller.close() } catch {}
+        await runMission(db, params.id, send)
+      } catch {
+        // runMission already handled DB state and sent error event via onChunk.
+        // We just need to ensure the stream closes cleanly.
       }
+
+      try { controller.close() } catch {}
     }
   })
 

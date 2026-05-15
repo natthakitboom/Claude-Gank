@@ -9,8 +9,12 @@ const ALLOWED_PATCH_FIELDS = [
   'figma_node_id',
   'figma_thumbnail_url',
   'figma_design_context',
+  'mcp_url',
   'system_prompt_extra',
   'tags_json',
+  'ms_tenant_id',
+  'ms_client_id',
+  'ms_client_secret',
 ] as const
 
 type AllowedField = typeof ALLOWED_PATCH_FIELDS[number]

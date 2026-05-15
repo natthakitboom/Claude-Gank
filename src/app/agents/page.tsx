@@ -402,7 +402,7 @@ function AgentsContent() {
             onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'linear-gradient(135deg, #2a2060 0%, #1a1530 100%)' }}
           >
             <span style={{ fontSize: 16, color: '#7a72c8', lineHeight: 1 }}>+</span>
-            <span>NEW AGENT</span>
+            <span>{t('deploy_new_agent')}</span>
           </button>
 
           <div className="flex-1 overflow-y-auto">
@@ -751,7 +751,7 @@ function AgentsContent() {
           <div className="w-full max-w-md rounded-xl overflow-hidden" style={{ background: '#0d0b18', border: '1px solid #1a1530' }}>
             <div className="p-5 flex items-center justify-between" style={{ borderBottom: '1px solid #1a1530' }}>
               <span className="font-orbitron font-bold text-white" style={{ fontSize: 11, letterSpacing: '0.1em' }}>
-                NEW AGENT
+                {t('deploy_new_agent')}
               </span>
               <div className="flex items-center gap-2">
                 <button

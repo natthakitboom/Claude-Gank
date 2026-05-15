@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff2d78"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="256" height="256" rx="48" fill="#0d0b14"/>
+
+  <!-- Bar 1 (tallest - left leg of M) -->
+  <rect x="32" y="56" width="40" height="152" rx="8" fill="url(#g)" filter="url(#glow)"/>
+
+  <!-- Bar 2 (medium - inner left peak of M) -->
+  <rect x="88" y="96" width="40" height="112" rx="8" fill="url(#g)" filter="url(#glow)" opacity="0.9"/>
+
+  <!-- Bar 3 (medium - inner right peak of M) -->
+  <rect x="128" y="96" width="40" height="112" rx="8" fill="url(#g)" filter="url(#glow)" opacity="0.9"/>
+
+  <!-- Bar 4 (tallest - right leg of M) -->
+  <rect x="184" y="56" width="40" height="152" rx="8" fill="url(#g)" filter="url(#glow)"/>
+
+  <!-- Connecting peak line (top of M) -->
+  <rect x="32" y="56" width="192" height="14" rx="7" fill="url(#g)" opacity="0.6"/>
+
+  <!-- Glow dots at base -->
+  <circle cx="52" cy="224" r="5" fill="#ff2d78" opacity="0.8"/>
+  <circle cx="108" cy="224" r="5" fill="#a855f7" opacity="0.8"/>
+  <circle cx="148" cy="224" r="5" fill="#a855f7" opacity="0.8"/>
+  <circle cx="204" cy="224" r="5" fill="#7c3aed" opacity="0.8"/>
+</svg>

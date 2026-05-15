@@ -3,7 +3,7 @@ name: new-output-block
 description: Use this skill when adding a new parsed output block type to the mission execute route. Trigger when user wants agents to be able to output a new structured block (like ---TASKS---, ---SEND_TO---) that triggers a specific action in the system.
 ---
 
-# New Output Block Skill — Claude Gang
+# New Output Block Skill — MI Gang
 
 เพิ่ม output block handler ใหม่ใน `src/app/api/missions/[id]/execute/route.ts`
 

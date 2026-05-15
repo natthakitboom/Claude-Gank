@@ -5,7 +5,7 @@ import fs from 'fs'
 import path from 'path'
 
 // Base directory where all generated project code will live
-// Structure: Claude Gank/projects/{projectId}/  (sibling of multi-agent-dashboard/)
+// Structure: MI Gang/projects/{projectId}/  (sibling of multi-agent-dashboard/)
 const PROJECTS_BASE = process.env.PROJECTS_BASE_DIR ||
   path.join(process.cwd(), '..', 'projects')
 
@@ -41,7 +41,7 @@ function buildRoster(agents: any[]): string {
 export async function POST(request: Request) {
   const db = getDb()
   const body = await request.json()
-  const { description, priority = 'high', template_id, template_name } = body
+  const { description, name, priority = 'high', template_id, template_name } = body
   const origin = new URL(request.url).origin
 
   if (!description) return NextResponse.json({ error: 'description required' }, { status: 400 })
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
     `).run(
       projectId,
-      description.slice(0, 100),
+      (name?.trim() || description.slice(0, 100)),
       description,
       workDir,
       path.join(workDir, 'docker-compose.yml'),

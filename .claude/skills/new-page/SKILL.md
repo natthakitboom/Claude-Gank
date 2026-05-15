@@ -1,11 +1,11 @@
 ---
 name: new-page
-description: Use this skill when adding a new feature page/route to Claude Gang. Trigger when user wants to add a new screen, section, or nav item to the app. Covers all 4 required steps: nav entry, i18n keys, page.tsx, and API route.
+description: Use this skill when adding a new feature page/route to MI Gang. Trigger when user wants to add a new screen, section, or nav item to the app. Covers all 4 required steps: nav entry, i18n keys, page.tsx, and API route.
 ---
 
-# New Page Skill — Claude Gang
+# New Page Skill — MI Gang
 
-เพิ่มหน้าใหม่ใน Claude Gang ต้องทำ **4 ขั้นเสมอ** — ห้ามข้ามขั้นตอน
+เพิ่มหน้าใหม่ใน MI Gang ต้องทำ **4 ขั้นเสมอ** — ห้ามข้ามขั้นตอน
 
 ---
 

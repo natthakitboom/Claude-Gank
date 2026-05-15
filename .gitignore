@@ -24,3 +24,4 @@ Thumbs.db
 *.tsbuildinfo
 next-env.d.ts
 installer/dist/
+.claude/settings.local.json

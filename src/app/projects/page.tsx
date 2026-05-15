@@ -4,13 +4,13 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   FolderOpen, Trash2, Settings, X, CheckCircle, Loader2, Circle,
   RefreshCw, Code2, Globe, Database, Play, Square, User,
-  RotateCcw, Bug, Zap, ChevronDown, ChevronUp, ExternalLink, Copy, Check,
-  Rocket, Wrench, MoreHorizontal, LayoutTemplate,
+  RotateCcw, Bug, Zap, ChevronDown, ChevronUp, Copy, Check,
+  Rocket, Wrench, MoreHorizontal, LayoutTemplate, Eye, EyeOff, ScrollText, ChevronRight, Activity, Camera,
+  MessageSquare, Send, Bot, Trash, ExternalLink,
 } from 'lucide-react'
 import { useLanguage, type TranslationKey } from '@/lib/i18n'
 import { parseDemoAccounts } from '@/lib/parseAccounts'
 
-interface Agent { id: string; name: string; role: string; team: string; sprite: string; model: string }
 
 interface ProjectTemplate {
   id: string
@@ -18,6 +18,9 @@ interface ProjectTemplate {
   description: string
   tech_stack: string
   tags_json: string
+  ms_tenant_id?: string
+  ms_client_id?: string
+  ms_client_secret?: string
 }
 
 interface Project {
@@ -46,19 +49,19 @@ interface Project {
   stuck: number
   template_id: string | null
   template_name: string | null
+  ms_tenant_id: string | null
+  ms_client_id: string | null
+  ms_client_secret: string | null
   running_agent_name: string | null
   running_agent_sprite: string | null
   running_mission_title: string | null
   running_tasks_deep: number
+  current_phase: number | null
+  next_phase: number | null
 }
 
-function parseDbCreds(output: string | null): { user: string; pass: string } | null {
-  if (!output) return null
-  const user = output.match(/(?:POSTGRES_USER|DB_USER(?:NAME)?|DATABASE_USER)\s*[=:]\s*["']?(\w+)["']?/i)?.[1]
-  const pass = output.match(/(?:POSTGRES_PASSWORD|DB_PASS(?:WORD)?|DATABASE_PASSWORD)\s*[=:]\s*["']?([^\s"'\n]+)["']?/i)?.[1]
-  if (!user && !pass) return null
-  return { user: user || '—', pass: pass || '—' }
-}
+interface Agent { id: string; name: string; name_en?: string; role: string; team: string; color: string; sprite?: string }
+interface ChatMsg { role: 'user' | 'agent'; text: string; agentName?: string; agentSprite?: string; agentColor?: string }
 
 function parsePorts(output: string | null): { web: number | null; adminer: number | null; api: number | null } {
   if (!output) return { web: null, adminer: null, api: null }
@@ -88,11 +91,12 @@ function getStatusInfo(p: Project, t: (key: TranslationKey) => string): { label:
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
+  const { t } = useLanguage()
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
       className="p-1 rounded transition-colors hover:bg-white/10"
-      title="คัดลอก"
+      title={t('missions_copy')}
     >
       {copied ? <Check size={12} style={{ color: '#22c55e' }} /> : <Copy size={12} style={{ color: '#6b7280' }} />}
     </button>
@@ -105,24 +109,19 @@ export default function ProjectsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteLog, setDeleteLog] = useState<{ id: string; log: string[] } | null>(null)
   const [pathModal, setPathModal] = useState<Project | null>(null)
-  const [pathForm, setPathForm] = useState({ work_dir: '', docker_compose_path: '', db_user: '', db_password: '', web_port: '', adminer_port: '' })
+  const [pathForm, setPathForm] = useState({ name: '', work_dir: '', docker_compose_path: '', db_user: '', db_password: '', web_port: '', adminer_port: '', ms_tenant_id: '', ms_client_id: '', ms_client_secret: '' })
+  const [pathFormFromTemplate, setPathFormFromTemplate] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [showProjectSecret, setShowProjectSecret] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState<Record<string, boolean>>({})
+  const [showCreateModal, setShowCreateModal] = useState(false)
 
-  // ── Flow Selector state ─────────────────────────────────────────────────────
-  type FlowMode = 'new' | 'fix' | 'quick' | null
-  const [flowMode, setFlowMode] = useState<FlowMode>(null)
+  const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [launching, setLaunching] = useState(false)
   const [launchResult, setLaunchResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [quickAgent, setQuickAgent] = useState('')
-  const [quickDesc, setQuickDesc] = useState('')
-  const [fixProject, setFixProject] = useState('')
-  const [fixDesc, setFixDesc] = useState('')
   const [templates, setTemplates] = useState<ProjectTemplate[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
-  // ────────────────────────────────────────────────────────────────────────────
 
   const [dockerLog, setDockerLog] = useState<Record<string, string>>({})
   const [dockerRunning, setDockerRunning] = useState<Record<string, boolean>>({})
@@ -130,14 +129,26 @@ export default function ProjectsPage() {
   const [auditRunning, setAuditRunning] = useState<Record<string, boolean>>({})
   const [n2nRunning, setN2nRunning] = useState<Record<string, boolean>>({})
   const [actionMsg, setActionMsg] = useState<Record<string, string>>({})
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({})
+  const [screenshotting, setScreenshotting] = useState<Record<string, boolean>>({})
+  const [accountsExpanded, setAccountsExpanded] = useState<Record<string, boolean>>({})
+  const [promptModal, setPromptModal] = useState<Project | null>(null)
+  const [advancingPhase, setAdvancingPhase] = useState<Record<string, boolean>>({})
+  const [askModal, setAskModal] = useState<Project | null>(null)
+  const [askAgents, setAskAgents] = useState<Agent[]>([])
+  const [askSelectedAgent, setAskSelectedAgent] = useState<string>('')
+  const [askChat, setAskChat] = useState<ChatMsg[]>([])
+  const [askInput, setAskInput] = useState('')
+  const [askLoading, setAskLoading] = useState(false)
+  const askChatRef = useRef<HTMLDivElement>(null)
   const dockerTermRef = useRef<Record<string, HTMLDivElement | null>>({})
   const dockerLock = useRef<Set<string>>(new Set())
   const dockerRunningRef = useRef<Record<string, boolean>>({})
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
 
   async function runDocker(p: Project, cmd: string) {
     if (dockerLock.current.has(p.id)) return
-    if (!p.work_dir) { alert('ยังไม่ได้ตั้งค่าโฟลเดอร์โปรเจกต์'); return }
+    if (!p.work_dir) { alert(t('projects_no_work_dir_alert')); return }
     dockerLock.current.add(p.id)
     dockerRunningRef.current[p.id] = true
     setDockerRunning(r => ({ ...r, [p.id]: true }))
@@ -207,9 +218,28 @@ export default function ProjectsPage() {
       const data: Project[] = await res.json()
       setProjects(data)
       data.forEach(p => { if (p.docker_compose_path) checkDockerStatus(p) })
+      // Load existing thumbnails
+      data.forEach(async p => {
+        try {
+          const r = await fetch(`/api/projects/${p.id}/screenshot`)
+          const d = await r.json()
+          if (d.exists) setThumbnails(prev => ({ ...prev, [p.id]: d.url + `?t=${Date.now()}` }))
+        } catch {}
+      })
     } catch {}
     setLoading(false)
   }, [checkDockerStatus])
+
+  async function captureScreenshot(p: Project) {
+    if (screenshotting[p.id]) return
+    setScreenshotting(s => ({ ...s, [p.id]: true }))
+    try {
+      const res = await fetch(`/api/projects/${p.id}/screenshot`, { method: 'POST' })
+      const data = await res.json()
+      if (data.url) setThumbnails(prev => ({ ...prev, [p.id]: data.url }))
+    } catch {}
+    setScreenshotting(s => ({ ...s, [p.id]: false }))
+  }
 
   useEffect(() => {
     let alive = true
@@ -219,23 +249,20 @@ export default function ProjectsPage() {
     return () => { alive = false; clearInterval(interval) }
   }, [fetchProjects])
 
+  // Scheduler watchdog — ping every 30s so stuck pending missions self-rescue even on this page
   useEffect(() => {
-    fetch('/api/agents').then(r => r.json()).then((d: Agent[]) => {
-      setAgents(d)
-      if (d.length > 0 && !quickAgent) setQuickAgent(d[0].id)
-    }).catch(() => {})
+    const ping = () => fetch('/api/scheduler').catch(() => {})
+    ping()
+    const i = setInterval(ping, 30_000)
+    return () => clearInterval(i)
   }, [])
+
 
   useEffect(() => {
     fetch('/api/project-templates').then(r => r.json()).then((d: ProjectTemplate[]) => {
       setTemplates(d)
     }).catch(() => {})
   }, [])
-
-  const openFlow = (mode: FlowMode) => {
-    setFlowMode(f => f === mode ? null : mode)
-    setLaunchResult(null)
-  }
 
   const launchNewProject = async () => {
     if (!newDesc.trim() || launching) return
@@ -248,6 +275,7 @@ export default function ProjectsPage() {
         body: JSON.stringify({
           description: newDesc.trim(),
           priority: 'high',
+          ...(newName.trim() ? { name: newName.trim() } : {}),
           ...(selectedTemplateId ? {
             template_id: selectedTemplateId,
             template_name: templates.find(t => t.id === selectedTemplateId)?.name,
@@ -256,66 +284,13 @@ export default function ProjectsPage() {
       })
       const data = await res.json()
       if (data.ok) {
-        setLaunchResult({ ok: true, message: `✅ เริ่มต้นแล้ว! เลขากำลังวิเคราะห์และแบ่งงาน — ดูความคืบหน้าใน Projects` })
+        setLaunchResult({ ok: true, message: t('projects_launch_success') })
         setNewDesc('')
-        setTimeout(() => { setFlowMode(null); setLaunchResult(null); fetchProjects() }, 3000)
+        setNewName('')
+        setSelectedTemplateId(null)
+        setTimeout(() => { setShowCreateModal(false); setLaunchResult(null); fetchProjects() }, 2500)
       } else {
-        setLaunchResult({ ok: false, message: data.error || 'เกิดข้อผิดพลาด' })
-      }
-    } finally { setLaunching(false) }
-  }
-
-  const launchQuickTask = async () => {
-    if (!quickDesc.trim() || !quickAgent || launching) return
-    setLaunching(true)
-    setLaunchResult(null)
-    try {
-      const agent = agents.find(a => a.id === quickAgent)
-      const res = await fetch('/api/missions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: quickDesc.trim().slice(0, 80), description: quickDesc.trim(), agent_id: quickAgent, priority: 'normal' }),
-      })
-      const data = await res.json()
-      if (data.id) {
-        fetch(`/api/missions/${data.id}/execute`, { method: 'POST' }).catch(() => {})
-        setLaunchResult({ ok: true, message: `✅ ส่งงานให้ ${agent?.name || 'agent'} แล้ว — ดูผลใน Missions` })
-        setQuickDesc('')
-        setTimeout(() => { setFlowMode(null); setLaunchResult(null) }, 3000)
-      } else {
-        setLaunchResult({ ok: false, message: data.error || 'เกิดข้อผิดพลาด' })
-      }
-    } finally { setLaunching(false) }
-  }
-
-  const launchFix = async () => {
-    if (!fixDesc.trim() || !fixProject || launching) return
-    setLaunching(true)
-    setLaunchResult(null)
-    try {
-      const proj = projects.find(p => p.id === fixProject)
-      const context = proj?.work_dir ? `\n\nProject: ${proj.name}\nWork Dir: ${proj.work_dir}\n` : ''
-      // Find a coder/tech agent as default for fix tasks
-      const coder = agents.find(a => a.team === 'TECH') || agents[0]
-      const res = await fetch('/api/missions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: `[Fix] ${fixDesc.trim().slice(0, 60)}`,
-          description: `${fixDesc.trim()}${context}`,
-          agent_id: coder?.id || '',
-          priority: 'high',
-        }),
-      })
-      const data = await res.json()
-      if (data.id) {
-        fetch(`/api/missions/${data.id}/execute`, { method: 'POST' }).catch(() => {})
-        setLaunchResult({ ok: true, message: `✅ ส่งงานแก้ไขแล้ว — ดูผลใน Missions` })
-        setFixDesc('')
-        setFixProject('')
-        setTimeout(() => { setFlowMode(null); setLaunchResult(null) }, 3000)
-      } else {
-        setLaunchResult({ ok: false, message: data.error || 'เกิดข้อผิดพลาด' })
+        setLaunchResult({ ok: false, message: data.error || t('projects_launch_error') })
       }
     } finally { setLaunching(false) }
   }
@@ -350,11 +325,11 @@ export default function ProjectsPage() {
   async function handleAudit(p: Project) {
     if (auditRunning[p.id]) return
     setAuditRunning(s => ({ ...s, [p.id]: true }))
-    setActionMsg(s => ({ ...s, [p.id]: 'กำลังตรวจสอบโค้ด...' }))
+    setActionMsg(s => ({ ...s, [p.id]: t('projects_audit_checking') }))
     try {
       const result = await createAndExecute(p.id, `/api/projects/${p.id}/audit`, {}, setAuditRunning, '')
       if (result.ok) {
-        setActionMsg(s => ({ ...s, [p.id]: '✅ AI กำลังตรวจสอบโค้ด' }))
+        setActionMsg(s => ({ ...s, [p.id]: t('projects_audit_done') }))
         setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 6000)
       } else {
         setActionMsg(s => ({ ...s, [p.id]: `❌ ${result.error}` }))
@@ -370,11 +345,11 @@ export default function ProjectsPage() {
   async function handleN2n(p: Project) {
     if (n2nRunning[p.id]) return
     setN2nRunning(s => ({ ...s, [p.id]: true }))
-    setActionMsg(s => ({ ...s, [p.id]: 'AI กำลังวิเคราะห์ปัญหา...' }))
+    setActionMsg(s => ({ ...s, [p.id]: t('projects_n2n_analyzing') }))
     try {
       const result = await createAndExecute(p.id, `/api/projects/${p.id}/n2n`, {}, setN2nRunning, '')
       if (result.ok) {
-        setActionMsg(s => ({ ...s, [p.id]: '✅ AI กำลังแก้ไขให้อัตโนมัติ' }))
+        setActionMsg(s => ({ ...s, [p.id]: t('projects_n2n_done') }))
         setTimeout(() => setActionMsg(s => ({ ...s, [p.id]: '' })), 6000)
       } else {
         setActionMsg(s => ({ ...s, [p.id]: `❌ ${result.error}` }))
@@ -388,15 +363,30 @@ export default function ProjectsPage() {
   }
 
   async function handleSetPath(p: Project) {
+    const tpl = p.template_id ? templates.find(t => t.id === p.template_id) : null
+    const fromTpl = new Set<string>()
+
+    function fallback(projectVal: string | null | undefined, tplVal: string | undefined, key: string): string {
+      if (projectVal) return projectVal
+      if (tplVal) { fromTpl.add(key); return tplVal }
+      return ''
+    }
+
     setPathModal(p)
+    setPathFormFromTemplate(fromTpl)
     setPathForm({
+      name: p.name || '',
       work_dir: p.work_dir || '',
       docker_compose_path: p.docker_compose_path || '',
       db_user: p.db_user || '',
       db_password: p.db_password || '',
       web_port: p.web_port ? String(p.web_port) : '',
       adminer_port: p.adminer_port ? String(p.adminer_port) : '',
+      ms_tenant_id: fallback(p.ms_tenant_id, tpl?.ms_tenant_id, 'ms_tenant_id'),
+      ms_client_id: fallback(p.ms_client_id, tpl?.ms_client_id, 'ms_client_id'),
+      ms_client_secret: fallback(null, tpl?.ms_client_secret, 'ms_client_secret'),
     })
+    setPathFormFromTemplate(new Set(fromTpl))
   }
 
   async function savePath() {
@@ -407,15 +397,114 @@ export default function ProjectsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...pathForm,
+        name: pathForm.name || null,
         db_user: pathForm.db_user || null,
         db_password: pathForm.db_password || null,
         web_port: pathForm.web_port ? Number(pathForm.web_port) : null,
         adminer_port: pathForm.adminer_port ? Number(pathForm.adminer_port) : null,
+        ms_tenant_id: pathForm.ms_tenant_id || null,
+        ms_client_id: pathForm.ms_client_id || null,
+        ms_client_secret: pathForm.ms_client_secret || null,
       }),
     })
     setSaving(false)
     setPathModal(null)
+    setPathFormFromTemplate(new Set())
     fetchProjects()
+  }
+
+  // ── Ask Agent ─────────────────────────────────────────────────────────────
+  async function openAsk(p: Project) {
+    setAskModal(p)
+    setAskInput('')
+    setAskLoading(false)
+    // load agents on first open
+    if (askAgents.length === 0) {
+      const list: Agent[] = await fetch('/api/agents').then(r => r.json())
+      setAskAgents(list)
+      const preferred = list.find(a => a.id === 'agent-coder')
+        || list.find(a => a.role?.toLowerCase().includes('senior'))
+        || list.find(a => a.team === 'TECH')
+        || list[0]
+      if (preferred && !askSelectedAgent) setAskSelectedAgent(preferred.id)
+    }
+    // load chat history
+    const history = await fetch(`/api/projects/${p.id}/chat`).then(r => r.json())
+    if (history.messages?.length > 0) {
+      setAskChat(history.messages.map((m: any) => ({ role: m.role, text: m.text, agentName: m.agent_name })))
+    } else {
+      setAskChat([])
+    }
+  }
+
+  async function streamMission(missionId: string, onChunk: (text: string) => void) {
+    const execRes = await fetch(`/api/missions/${missionId}/execute`, { method: 'POST' })
+    if (!execRes.body) return ''
+    const reader = execRes.body.getReader()
+    const decoder = new TextDecoder()
+    let partial = ''; let full = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      partial += decoder.decode(value)
+      const lines = partial.split('\n'); partial = lines.pop() || ''
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try { const ev = JSON.parse(line.slice(6)); if (ev.type === 'chunk') { full += ev.text; onChunk(full) } } catch {}
+        }
+      }
+    }
+    return full
+  }
+
+  async function sendAsk(e?: React.FormEvent) {
+    e?.preventDefault()
+    if (!askInput.trim() || askLoading || !askSelectedAgent || !askModal) return
+    const userMsg = askInput.trim()
+    setAskInput('')
+    setAskLoading(true)
+    const agent = askAgents.find(a => a.id === askSelectedAgent)
+    setAskChat(c => [...c, { role: 'user', text: userMsg }])
+    // save user msg
+    fetch(`/api/projects/${askModal.id}/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ role: 'user', text: userMsg }]),
+    }).catch(() => {})
+    setTimeout(() => { if (askChatRef.current) askChatRef.current.scrollTop = askChatRef.current.scrollHeight }, 50)
+
+    const historyMsgs = askChat.slice(-20)
+    const historyBlock = historyMsgs.length > 0
+      ? `## บทสนทนาก่อนหน้า\n${historyMsgs.map(m => m.role === 'user' ? `User: ${m.text}` : `${m.agentName || 'Agent'}: ${m.text.slice(0, 600)}`).join('\n\n')}\n\n---\n\n`
+      : ''
+    const description = `## โปรเจกต์: ${askModal.name}\nWork Dir: \`${askModal.work_dir || '(ไม่ได้ตั้งค่า)'}\`\n\n${historyBlock}## คำถาม\n${userMsg}`
+
+    try {
+      const missionRes = await fetch('/api/missions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: userMsg.slice(0, 80), description, agent_id: askSelectedAgent, priority: 'high', parent_mission_id: askModal.mission_id || null }),
+      })
+      const mission = await missionRes.json()
+      await streamMission(mission.id, text => {
+        setAskChat(c => {
+          const last = c[c.length - 1]
+          if (last?.role === 'agent') return [...c.slice(0, -1), { ...last, text }]
+          return [...c, { role: 'agent', text, agentName: agent?.name, agentColor: agent?.color, agentSprite: agent?.sprite }]
+        })
+        setTimeout(() => { if (askChatRef.current) askChatRef.current.scrollTop = askChatRef.current.scrollHeight }, 30)
+      })
+      // save agent response
+      setAskChat(c => {
+        const agentMsgs = c.filter(m => m.role === 'agent').slice(-1)
+        fetch(`/api/projects/${askModal.id}/chat`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(agentMsgs.map(m => ({ role: m.role, text: m.text, agent_name: m.agentName, agent_id: askSelectedAgent }))),
+        }).catch(() => {})
+        return c
+      })
+    } catch (err) {
+      setAskChat(c => [...c, { role: 'agent', text: `Error: ${String(err)}`, agentName: agent?.name }])
+    }
+    setAskLoading(false)
   }
 
   const completeCount = projects.filter(p => p.task_count > 0 && p.completed_tasks === p.task_count).length
@@ -456,14 +545,24 @@ export default function ProjectsPage() {
             </span>
           </div>
         </div>
-        <button
-          onClick={fetchProjects}
-          className="p-2 rounded-lg transition-colors hover:bg-white/5 shrink-0"
-          style={{ border: '1px solid #2d2848', color: '#6b7280' }}
-          title="รีเฟรช"
-        >
-          <RefreshCw size={15} />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => { setShowCreateModal(true); setLaunchResult(null) }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:brightness-110 active:scale-95"
+            style={{ background: '#E8365D', color: 'white' }}
+          >
+            <Rocket size={14} />
+            {t('projects_create_btn')}
+          </button>
+          <button
+            onClick={fetchProjects}
+            className="p-2 rounded-lg transition-colors hover:bg-white/5"
+            style={{ border: '1px solid #2d2848', color: '#6b7280' }}
+            title={t('projects_refresh_title')}
+          >
+            <RefreshCw size={15} />
+          </button>
+        </div>
       </div>
 
       {/* ── Delete log toast ──────────────────────────────────────────────── */}
@@ -483,94 +582,6 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* ── Create panel ─────────────────────────────────────────────────── */}
-      <div className="rounded-xl overflow-hidden" style={{ background: '#1c1830', border: '1px solid #2d2848' }}>
-        <div className="px-4 pt-4 pb-1 flex items-center gap-2">
-          <Rocket size={14} style={{ color: '#E8365D' }} />
-          <span className="text-sm font-bold text-white">สร้าง Project ใหม่</span>
-        </div>
-        <div className="p-4 space-y-3">
-          {/* Template picker */}
-          {templates.length > 0 && (
-            <div>
-              <div className="flex items-center gap-1.5 mb-2">
-                <LayoutTemplate size={12} style={{ color: '#a78bfa' }} />
-                <span className="text-xs font-semibold" style={{ color: '#a78bfa' }}>Template</span>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => setSelectedTemplateId(null)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                  style={{
-                    background: selectedTemplateId === null ? 'rgba(167,139,250,0.15)' : '#13101e',
-                    border: `1px solid ${selectedTemplateId === null ? '#a78bfa' : '#2d2848'}`,
-                    color: selectedTemplateId === null ? '#a78bfa' : '#6b7280',
-                  }}
-                >
-                  ไม่ใช้ template
-                </button>
-                {templates.map(tpl => (
-                  <button
-                    key={tpl.id}
-                    onClick={() => setSelectedTemplateId(id => id === tpl.id ? null : tpl.id)}
-                    title={tpl.description || tpl.tech_stack || ''}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                    style={{
-                      background: selectedTemplateId === tpl.id ? 'rgba(167,139,250,0.15)' : '#13101e',
-                      border: `1px solid ${selectedTemplateId === tpl.id ? '#a78bfa' : '#2d2848'}`,
-                      color: selectedTemplateId === tpl.id ? '#a78bfa' : '#9ca3af',
-                    }}
-                  >
-                    {tpl.name}
-                  </button>
-                ))}
-              </div>
-              {/* Selected template info */}
-              {selectedTemplateId && (() => {
-                const tpl = templates.find(t => t.id === selectedTemplateId)
-                if (!tpl) return null
-                return (
-                  <div className="mt-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.2)' }}>
-                    {tpl.description && <p className="text-xs mb-1" style={{ color: '#c4b5fd' }}>{tpl.description}</p>}
-                    {tpl.tech_stack && <p className="text-xs font-mono" style={{ color: '#6b7280' }}>{tpl.tech_stack}</p>}
-                  </div>
-                )
-              })()}
-            </div>
-          )}
-          <textarea
-            placeholder="เช่น: ระบบจองห้องประชุมออนไลน์ สำหรับพนักงาน 500 คน มี login, จอง, approve, และ dashboard แสดงสถิติการใช้งาน"
-            className="w-full rounded-lg px-3 py-2.5 text-sm text-white resize-none"
-            style={{ background: '#13101e', border: '1px solid #2d2848', outline: 'none', minHeight: 96 }}
-            value={newDesc}
-            onChange={e => setNewDesc(e.target.value)}
-          />
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-xs" style={{ color: '#4b5563' }}>Secretary จะวางแผนและแบ่งงานให้ทีมอัตโนมัติ</span>
-            <button
-              onClick={launchNewProject}
-              disabled={!newDesc.trim() || launching}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold flex-shrink-0 transition-all"
-              style={{
-                background: newDesc.trim() && !launching ? '#E8365D' : '#2a1520',
-                color: newDesc.trim() && !launching ? 'white' : '#6b7280',
-                cursor: !newDesc.trim() || launching ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {launching ? <Loader2 size={13} className="animate-spin" /> : <Rocket size={13} />}
-              {launching ? 'กำลังสร้าง...' : 'เริ่มต้น'}
-            </button>
-          </div>
-          {launchResult && (
-            <div className="px-3 py-2 rounded-lg text-sm" style={{
-              background: launchResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
-              color: launchResult.ok ? '#22c55e' : '#ef4444',
-              border: `1px solid ${launchResult.ok ? '#22c55e30' : '#ef444430'}`,
-            }}>{launchResult.message}</div>
-          )}
-        </div>
-      </div>
-
       {/* ── Projects grid ─────────────────────────────────────────────────── */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -585,16 +596,16 @@ export default function ProjectsPage() {
           <h2 className="text-base font-semibold mb-1" style={{ color: '#6b7280' }}>{t('projects_empty_title')}</h2>
           <p className="text-sm mb-6" style={{ color: '#4b5563' }}>{t('projects_empty_desc')}</p>
           <button
-            onClick={() => openFlow('new')}
+            onClick={() => setShowCreateModal(true)}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all"
             style={{ background: '#E8365D', color: 'white' }}
           >
             <Rocket size={14} />
-            สร้าง Project แรก
+            {t('projects_create_first_btn')}
           </button>
         </div>
       ) : (
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {projects.map(p => {
             const status = getStatusInfo(p, t)
             const borderColor = getStatusBorderColor(p)
@@ -622,16 +633,15 @@ export default function ProjectsPage() {
                 style={{
                   background: '#1c1830',
                   border: '1px solid #2d2848',
-                  borderLeft: `4px solid ${borderColor}`,
+                  borderTop: `3px solid ${borderColor}`,
                 }}
               >
-                {/* Live activity strip — shown when in progress */}
+                {/* Live activity strip */}
                 {(p.running_tasks_deep > 0 || p.running_tasks > 0 || p.mission_status === 'running') && (
                   <div
-                    className="relative overflow-hidden flex items-center gap-2 px-3 py-1.5"
+                    className="relative overflow-hidden flex items-center gap-1.5 px-2.5 py-1"
                     style={{ background: 'rgba(96,165,250,0.06)', borderBottom: '1px solid rgba(96,165,250,0.15)' }}
                   >
-                    {/* shimmer sweep */}
                     <div
                       className="absolute inset-0 pointer-events-none"
                       style={{
@@ -640,72 +650,97 @@ export default function ProjectsPage() {
                         width: '30%',
                       }}
                     />
-                    {/* pulse dot */}
                     <span
                       className="flex-shrink-0 rounded-full"
-                      style={{ width: 6, height: 6, background: '#60a5fa', boxShadow: '0 0 6px #60a5fa', animation: 'agent-border-breathe 1s ease-in-out infinite' }}
+                      style={{ width: 5, height: 5, background: '#60a5fa', boxShadow: '0 0 5px #60a5fa', animation: 'agent-border-breathe 1s ease-in-out infinite' }}
                     />
-                    {/* agent info */}
                     {p.running_agent_sprite && (
-                      <span style={{ fontSize: 12, lineHeight: 1 }}>{p.running_agent_sprite}</span>
+                      <span style={{ fontSize: 10, lineHeight: 1 }}>{p.running_agent_sprite}</span>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {p.running_agent_name && (
-                          <span className="font-orbitron flex-shrink-0 text-xs font-bold" style={{ fontSize: 9, color: '#93c5fd', letterSpacing: '0.06em' }}>
-                            {p.running_agent_name}
-                          </span>
-                        )}
-                        {p.running_mission_title && (
-                          <>
-                            <span style={{ color: '#374151', fontSize: 9 }}>›</span>
-                            <span
-                              className="text-xs truncate"
-                              style={{ fontSize: 9, color: '#4b5563', fontFamily: 'monospace' }}
-                            >
-                              {p.running_mission_title.replace(/^\[.*?\]\s*/, '')}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <span className="font-orbitron flex-shrink-0" style={{ fontSize: 8, color: '#2563eb', letterSpacing: '0.08em' }}>
-                      {p.running_tasks_deep || p.running_tasks} RUNNING
+                    <span className="flex-1 truncate font-orbitron" style={{ fontSize: 8, color: '#93c5fd', letterSpacing: '0.05em' }}>
+                      {p.running_agent_name || ''}
+                      {p.running_mission_title ? ` › ${p.running_mission_title.replace(/^\[.*?\]\s*/, '')}` : ''}
+                    </span>
+                    <span className="font-orbitron flex-shrink-0" style={{ fontSize: 7, color: '#2563eb', letterSpacing: '0.08em' }}>
+                      {p.running_tasks_deep || p.running_tasks}▶
                     </span>
                   </div>
                 )}
 
-                {/* Card body */}
-                <div className="p-4 flex flex-col gap-3 flex-1">
+                {/* Thumbnail */}
+                <div className="relative overflow-hidden" style={{ height: 200 }}>
+                  {thumbnails[p.id] ? (
+                    <img
+                      src={thumbnails[p.id]}
+                      alt={p.name}
+                      className="w-full h-full object-cover object-top"
+                      style={{ opacity: 0.85 }}
+                    />
+                  ) : (
+                    <div
+                      className="w-full h-full flex items-center justify-center"
+                      style={{
+                        background: `linear-gradient(135deg, ${borderColor}22 0%, #13101e 60%)`,
+                        borderBottom: '1px solid #2d2848',
+                      }}
+                    >
+                      <span style={{ fontSize: 36, opacity: 0.15 }}>
+                        {p.name?.slice(0, 2).toUpperCase() || '??'}
+                      </span>
+                    </div>
+                  )}
+                  {/* Screenshot button */}
+                  {p.web_port && (
+                    <button
+                      onClick={() => captureScreenshot(p)}
+                      disabled={!!screenshotting[p.id]}
+                      className="absolute bottom-1.5 right-1.5 flex items-center gap-1 px-1.5 py-1 rounded-lg transition-all"
+                      style={{
+                        background: 'rgba(0,0,0,0.65)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#9ca3af',
+                        fontSize: 9,
+                        backdropFilter: 'blur(4px)',
+                      }}
+                      title={t('projects_screenshot_title')}
+                    >
+                      {screenshotting[p.id]
+                        ? <Loader2 size={9} className="animate-spin" />
+                        : <Camera size={9} />
+                      }
+                    </button>
+                  )}
+                </div>
 
-                  {/* Top row: status badge + date */}
-                  <div className="flex items-start justify-between gap-2">
+                {/* Card body */}
+                <div className="p-3 flex flex-col gap-2 flex-1">
+
+                  {/* Status + date */}
+                  <div className="flex items-center justify-between gap-1">
                     <span
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold shrink-0"
-                      style={{ background: status.bg, color: status.color }}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full font-semibold shrink-0"
+                      style={{ background: status.bg, color: status.color, fontSize: 10 }}
                     >
                       {status.icon} {status.label}
-                      {p.stuck === 1 && (
-                        <span className="animate-pulse" style={{ color: '#f59e0b', fontSize: '10px' }}>fixing…</span>
-                      )}
+                      {p.stuck === 1 && <span className="animate-pulse ml-0.5" style={{ color: '#f59e0b', fontSize: 9 }}>fixing…</span>}
                     </span>
-                    <span className="text-xs shrink-0" style={{ color: '#4b5563' }}>
-                      {new Date(p.created_at).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })}
+                    <span style={{ color: '#4b5563', fontSize: 10 }}>
+                      {new Date(p.created_at).toLocaleDateString('th-TH', { day: '2-digit', month: 'short' })}
                     </span>
                   </div>
 
                   {/* Project name */}
                   <div>
                     {p.template_name && (
-                      <div className="flex items-center gap-1 mb-1">
-                        <LayoutTemplate size={11} style={{ color: '#a78bfa' }} />
-                        <span className="text-xs font-medium" style={{ color: '#a78bfa' }}>{p.template_name}</span>
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <LayoutTemplate size={10} style={{ color: '#a78bfa' }} />
+                        <span style={{ color: '#a78bfa', fontSize: 10 }} className="font-medium truncate">{p.template_name}</span>
                       </div>
                     )}
                     <h2
                       className="font-bold text-white leading-snug"
                       style={{
-                        fontSize: '15px',
+                        fontSize: '13px',
                         display: '-webkit-box',
                         WebkitLineClamp: 2,
                         WebkitBoxOrient: 'vertical',
@@ -716,121 +751,150 @@ export default function ProjectsPage() {
                     </h2>
                   </div>
 
-                  {/* Progress bar — only while building */}
+                  {/* Progress bar */}
                   {p.task_count > 0 && !isComplete && (
                     <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs" style={{ color: '#6b7280' }}>{t('projects_progress')}</span>
-                        <span className="text-xs font-bold" style={{ color: status.color }}>{progress}%</span>
+                      <div className="flex justify-between items-center mb-0.5">
+                        <div className="flex gap-2" style={{ fontSize: 10, color: '#4b5563' }}>
+                          {p.completed_tasks > 0 && <span style={{ color: '#22c55e' }}>{p.completed_tasks}✓</span>}
+                          {p.running_tasks > 0 && <span style={{ color: '#60a5fa' }}>{p.running_tasks}▶</span>}
+                          {p.failed_tasks > 0 && <span style={{ color: '#ef4444' }}>{p.failed_tasks}✗</span>}
+                        </div>
+                        <span style={{ color: status.color, fontSize: 10 }} className="font-bold">{progress}%</span>
                       </div>
-                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#2d2848' }}>
+                      <div className="h-1 rounded-full overflow-hidden" style={{ background: '#2d2848' }}>
                         <div
                           className="h-full rounded-full transition-all duration-500"
                           style={{ width: `${progress}%`, background: status.color }}
                         />
                       </div>
-                      <div className="flex gap-3 mt-1 text-xs" style={{ color: '#4b5563' }}>
-                        {p.completed_tasks > 0 && <span style={{ color: '#22c55e' }}>{p.completed_tasks} {t('filter_done')}</span>}
-                        {p.running_tasks > 0 && <span style={{ color: '#60a5fa' }}>{p.running_tasks} {t('filter_running')}</span>}
-                        {p.failed_tasks > 0 && <span style={{ color: '#ef4444' }}>{p.failed_tasks} {t('filter_failed')}</span>}
-                      </div>
                     </div>
                   )}
 
-                  {/* Open Web + DB buttons */}
+                  {/* Phase trigger */}
+                  {p.next_phase != null && p.running_tasks_deep === 0 && p.running_tasks === 0 && (
+                    <button
+                      disabled={!!advancingPhase[p.id]}
+                      onClick={async () => {
+                        setAdvancingPhase(s => ({ ...s, [p.id]: true }))
+                        try {
+                          await fetch(`/api/projects/${p.id}/advance-phase`, { method: 'POST' })
+                          setTimeout(fetchProjects, 1500)
+                        } finally {
+                          setAdvancingPhase(s => ({ ...s, [p.id]: false }))
+                        }
+                      }}
+                      className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg font-semibold transition-all"
+                      style={{
+                        background: advancingPhase[p.id] ? 'rgba(99,92,138,0.06)' : 'rgba(99,92,138,0.14)',
+                        border: '1px solid rgba(99,92,138,0.4)',
+                        color: '#c4bfe8', fontSize: 10,
+                        cursor: advancingPhase[p.id] ? 'not-allowed' : 'pointer',
+                        opacity: advancingPhase[p.id] ? 0.6 : 1,
+                      }}
+                    >
+                      {advancingPhase[p.id]
+                        ? <><Loader2 size={10} className="animate-spin" /> {t('projects_phase_triggering')}</>
+                        : <><ChevronRight size={10} /> ▶ Phase {p.next_phase}{p.current_phase != null ? ` (${t('projects_phase_next_suffix')} ${p.current_phase})` : ''}</>
+                      }
+                    </button>
+                  )}
+
+                  {/* Port links */}
                   {(ports.web || ports.api || ports.adminer) && (
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex gap-1.5">
-                        {ports.web && (
-                          <a
-                            href={`http://localhost:${ports.web}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1.5 flex-1 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-125 active:scale-95"
-                            style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#22c55e' }}
-                          >
-                            <Globe size={13} />
-                            Frontend
-                            <ExternalLink size={10} style={{ opacity: 0.55 }} />
-                          </a>
-                        )}
-                        {ports.api ? (
-                          <a
-                            href={`http://localhost:${ports.api}/admin`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1.5 flex-1 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-125 active:scale-95"
-                            style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)', color: '#60a5fa' }}
-                          >
-                            <Code2 size={13} />
-                            Admin
-                            <ExternalLink size={10} style={{ opacity: 0.55 }} />
-                          </a>
-                        ) : ports.web ? (
-                          <a
-                            href={`http://localhost:${ports.web}/admin`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1.5 flex-1 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-125 active:scale-95"
-                            style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', color: '#60a5fa' }}
-                          >
-                            <Code2 size={13} />
-                            Admin
-                            <ExternalLink size={10} style={{ opacity: 0.55 }} />
-                          </a>
-                        ) : null}
-                        {ports.adminer && (
-                          <a
-                            href={`http://localhost:${ports.adminer}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1.5 flex-1 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-125 active:scale-95"
-                            style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)', color: '#a855f7' }}
-                            title={`จัดการฐานข้อมูล — localhost:${ports.adminer}`}
-                          >
-                            <Database size={13} />
-                            DB
-                            <ExternalLink size={10} style={{ opacity: 0.55 }} />
-                          </a>
-                        )}
-                      </div>
+                    <div className="flex gap-1">
+                      {ports.web && (
+                        <a
+                          href={`http://localhost:${ports.web}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-1 flex-1 py-1.5 rounded-lg font-semibold transition-all hover:brightness-125 active:scale-95"
+                          style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#22c55e', fontSize: 10 }}
+                        >
+                          <Globe size={10} /> Web
+                        </a>
+                      )}
+                      {ports.web && (
+                        <a
+                          href={`http://localhost:${ports.web}/admin`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-1 flex-1 py-1.5 rounded-lg font-semibold transition-all hover:brightness-125 active:scale-95"
+                          style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)', color: '#60a5fa', fontSize: 10 }}
+                        >
+                          <Code2 size={10} /> Admin
+                        </a>
+                      )}
+                      {ports.adminer && (
+                        <a
+                          href={`http://localhost:${ports.adminer}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-1 flex-1 py-1.5 rounded-lg font-semibold transition-all hover:brightness-125 active:scale-95"
+                          style={{ background: 'rgba(168,85,247,0.1)', border: '1px solid rgba(168,85,247,0.25)', color: '#a855f7', fontSize: 10 }}
+                          title={`localhost:${ports.adminer}`}
+                        >
+                          <Database size={10} /> DB
+                        </a>
+                      )}
                     </div>
                   )}
 
-                  {/* Demo accounts */}
+                  {/* Demo accounts — collapsible */}
                   {accounts.length > 0 && (
                     <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #1a2234' }}>
-                      <div className="px-3 py-1.5 flex items-center gap-2" style={{ background: '#13101e', borderBottom: '1px solid #1a2234' }}>
-                        <User size={12} style={{ color: '#60a5fa' }} />
-                        <span className="text-xs font-semibold" style={{ color: '#60a5fa' }}>บัญชีสำหรับเข้าใช้งาน</span>
-                      </div>
-                      {accounts.map((a, i) => (
-                        <div
-                          key={i}
-                          className="px-3 py-2 flex items-center gap-3"
-                          style={{
-                            background: i % 2 === 0 ? '#0d0b14' : 'rgba(13,11,20,0.5)',
-                            borderTop: i > 0 ? '1px solid #0f1520' : undefined,
-                          }}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-semibold mb-0.5" style={{ color: a.role.toLowerCase().includes('admin') ? '#f59e0b' : '#94a3b8' }}>
-                              {a.role}
+                      <button
+                        className="w-full px-2 py-1 flex items-center gap-1.5 transition-colors hover:brightness-125"
+                        style={{ background: '#13101e', borderBottom: accountsExpanded[p.id] ? '1px solid #1a2234' : undefined }}
+                        onClick={() => setAccountsExpanded(s => ({ ...s, [p.id]: !s[p.id] }))}
+                      >
+                        <User size={10} style={{ color: '#60a5fa' }} />
+                        <span style={{ color: '#60a5fa', fontSize: 10 }} className="font-semibold flex-1 text-left">{t('projects_demo_accounts')} ({accounts.length})</span>
+                        {accountsExpanded[p.id] ? <ChevronUp size={10} style={{ color: '#60a5fa' }} /> : <ChevronDown size={10} style={{ color: '#60a5fa' }} />}
+                      </button>
+                      {accountsExpanded[p.id] && accounts.map((a, i) => {
+                        const isAdmin = a.role.toLowerCase().includes('admin') || a.role.toLowerCase().includes('superuser') || a.role.toLowerCase().includes('owner')
+                        const webUrl = ports.web ? `http://localhost:${ports.web}` : null
+                        const targetPath = isAdmin ? '/admin' : '/'
+                        return (
+                          <div
+                            key={i}
+                            className="px-2 py-1 flex items-center gap-2"
+                            style={{
+                              background: i % 2 === 0 ? '#0d0b14' : 'rgba(13,11,20,0.5)',
+                              borderTop: i > 0 ? '1px solid #0f1520' : undefined,
+                            }}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold truncate" style={{ color: isAdmin ? '#f59e0b' : '#94a3b8', fontSize: 9 }}>{a.role}</div>
+                              <div className="font-mono truncate" style={{ color: '#cbd5e1', fontSize: 9 }}>{a.email}</div>
                             </div>
-                            <div className="text-xs font-mono truncate" style={{ color: '#cbd5e1' }}>{a.email}</div>
+                            <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-0.5 rounded px-1.5 py-0.5" style={{ background: 'rgba(0,0,0,0.3)' }}>
+                                <span className="font-mono" style={{ color: '#6b7280', fontSize: 9 }}>{a.password}</span>
+                                <CopyButton text={a.password} />
+                              </div>
+                              {webUrl && (
+                                <a
+                                  href={`${webUrl}${targetPath}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={`${webUrl}${targetPath}`}
+                                  className="p-0.5 rounded transition-colors hover:bg-white/10"
+                                >
+                                  <ExternalLink size={9} style={{ color: isAdmin ? '#f59e0b' : '#60a5fa' }} />
+                                </a>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 rounded-md px-2 py-0.5" style={{ background: 'rgba(0,0,0,0.3)' }}>
-                            <span className="text-xs font-mono" style={{ color: '#6b7280' }}>{a.password}</span>
-                            <CopyButton text={a.password} />
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
 
-                  {/* No accounts buttons — only show when project is complete */}
+                  {/* Seed accounts — compact */}
                   {accounts.length === 0 && isComplete && (
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex gap-1">
                       {p.integration_output && (
                         <button
                           onClick={async () => {
@@ -840,18 +904,17 @@ export default function ProjectsPage() {
                             })
                             const data = await res.json()
                             if (data.accounts?.length > 0 || data.web_port) fetchProjects()
-                            else alert('ไม่พบข้อมูลบัญชี — ลองกด "สร้างบัญชีทดสอบ" แทน')
+                            else alert(t('projects_no_accounts_alert'))
                           }}
-                          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm transition-all"
-                          style={{ background: '#1c1830', border: '1px solid rgba(42,22,34,0.5)', color: '#6b7280' }}
+                          className="flex items-center gap-1 flex-1 px-2 py-1.5 rounded-lg transition-all justify-center"
+                          style={{ background: '#1c1830', border: '1px solid rgba(42,22,34,0.5)', color: '#6b7280', fontSize: 10 }}
                         >
-                          <User size={13} />
-                          ค้นหาบัญชีที่มีอยู่
+                          <User size={10} /> {t('projects_find_accounts_btn')}
                         </button>
                       )}
                       <button
                         onClick={async () => {
-                          if (!confirm('ให้ AI สร้างบัญชีทดสอบสำหรับโปรเจกต์นี้?')) return
+                          if (!confirm(t('projects_create_accounts_confirm'))) return
                           await fetch('/api/missions', {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -860,45 +923,43 @@ export default function ProjectsPage() {
                               priority: 'high', parent_mission_id: p.mission_id, phase: 4,
                             }),
                           })
-                          alert('AI กำลังสร้างบัญชีให้ — ดูความคืบหน้าที่หน้า "งานทั้งหมด"')
+                          alert(t('projects_accounts_created_alert'))
                         }}
-                        className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm transition-all"
-                        style={{ background: 'rgba(99,92,138,0.08)', border: '1px solid rgba(99,92,138,0.3)', color: '#c4bfe8' }}
+                        className="flex items-center gap-1 flex-1 px-2 py-1.5 rounded-lg transition-all justify-center"
+                        style={{ background: 'rgba(99,92,138,0.08)', border: '1px solid rgba(99,92,138,0.3)', color: '#c4bfe8', fontSize: 10 }}
                       >
-                        <User size={13} />
-                        สร้างบัญชีทดสอบ
+                        <User size={10} /> {t('projects_create_accounts_btn')}
                       </button>
                     </div>
                   )}
 
-                  {/* Auto-Fix button — show directly when there are failed tasks */}
+                  {/* Auto-Fix */}
                   {p.failed_tasks > 0 && p.running_tasks === 0 && (
                     <button
                       onClick={() => handleN2n(p)}
                       disabled={!!n2nRunning[p.id]}
-                      className="flex items-center justify-center gap-2 w-full py-2 rounded-lg text-xs font-semibold transition-all"
+                      className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg font-semibold transition-all"
                       style={{
                         background: n2nRunning[p.id] ? 'rgba(239,68,68,0.05)' : 'rgba(239,68,68,0.1)',
                         border: '1px solid rgba(239,68,68,0.35)',
-                        color: '#f87171',
+                        color: '#f87171', fontSize: 10,
                         cursor: n2nRunning[p.id] ? 'not-allowed' : 'pointer',
                         opacity: n2nRunning[p.id] ? 0.6 : 1,
                       }}
                     >
                       {n2nRunning[p.id]
-                        ? <><Loader2 size={12} className="animate-spin" /> AI กำลังวิเคราะห์และแก้ไข…</>
-                        : <><Wrench size={12} /> Auto-Fix {p.failed_tasks} งานที่ล้มเหลว</>
+                        ? <><Loader2 size={10} className="animate-spin" /> {t('projects_fixing_btn')}</>
+                        : <><Wrench size={10} /> {t('projects_auto_fix_btn')} {p.failed_tasks} {t('projects_tasks_suffix')}</>
                       }
                     </button>
                   )}
 
-                  {/* Action status message */}
+                  {/* Action message */}
                   {actionMsg[p.id] && (
                     <div
-                      className="px-3 py-2 rounded-lg text-xs text-center"
+                      className="px-2 py-1.5 rounded-lg text-center"
                       style={{
-                        background: '#0d0b14',
-                        border: '1px solid #2A1622',
+                        background: '#0d0b14', border: '1px solid #2A1622', fontSize: 10,
                         color: actionMsg[p.id].startsWith('✅') ? '#22c55e' : actionMsg[p.id].startsWith('❌') ? '#ef4444' : '#94a3b8',
                       }}
                     >
@@ -906,104 +967,123 @@ export default function ProjectsPage() {
                     </div>
                   )}
 
-                  {/* ── Footer ──────────────────────────────────────────────── */}
-                  <div className="mt-auto" style={{ borderTop: '1px solid #2d2848', paddingTop: '10px' }}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex gap-1.5">
+                  {/* Footer */}
+                  <div className="mt-auto" style={{ borderTop: '1px solid #2d2848', paddingTop: '8px' }}>
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex gap-1">
                         <a
                           href={`/projects/${p.id}`}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                          style={{ background: 'rgba(99,92,138,0.12)', border: '1px solid rgba(99,92,138,0.25)', color: '#c4bfe8' }}
-                          title="ดูและแก้ไขโค้ด"
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition-colors"
+                          style={{ background: 'rgba(99,92,138,0.12)', border: '1px solid rgba(99,92,138,0.25)', color: '#c4bfe8', fontSize: 10 }}
+                          title={t('projects_view_code_title')}
                         >
-                          <Code2 size={12} />
-                          {t('ide')}
+                          <Code2 size={10} /> {t('ide')}
+                        </a>
+                        <a
+                          href={`/monitor?project=${p.id}`}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition-colors hover:brightness-125"
+                          style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', color: '#10b981', fontSize: 10 }}
+                          title={t('projects_monitor_title')}
+                        >
+                          <Activity size={10} />
                         </a>
                         <button
                           onClick={() => handleSetPath(p)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5"
-                          style={{ color: '#6b7280', border: '1px solid #2d2848' }}
-                          title="ตั้งค่า path และ port"
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg transition-colors hover:bg-white/5"
+                          style={{ color: '#6b7280', border: '1px solid #2d2848', fontSize: 10 }}
+                          title={t('projects_settings_title')}
                         >
-                          <Settings size={12} />
-                          ตั้งค่า
+                          <Settings size={10} />
+                        </button>
+                        {p.description && (
+                          <button
+                            onClick={() => setPromptModal(p)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg transition-colors hover:bg-white/5"
+                            style={{ color: '#6b7280', border: '1px solid #2d2848', fontSize: 10 }}
+                            title={t('projects_prompt_title')}
+                          >
+                            <ScrollText size={10} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => openAsk(p)}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition-colors hover:brightness-125"
+                          style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)', color: '#a78bfa', fontSize: 10 }}
+                          title={t('projects_ask_title')}
+                        >
+                          <MessageSquare size={10} /> {t('projects_ask_btn')}
                         </button>
                       </div>
                       <button
                         onClick={() => setShowAdvanced(s => ({ ...s, [p.id]: !s[p.id] }))}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-colors hover:bg-white/5"
+                        className="flex items-center gap-0.5 px-2 py-1 rounded-lg transition-colors hover:bg-white/5"
                         style={{
-                          color: isAdvanced ? '#e5e7eb' : '#4b5563',
+                          color: isAdvanced ? '#e5e7eb' : '#4b5563', fontSize: 10,
                           border: isAdvanced ? '1px solid #2d2848' : '1px solid transparent',
                         }}
                       >
-                        <MoreHorizontal size={13} />
-                        More
-                        {isAdvanced ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                        <MoreHorizontal size={11} />
+                        {isAdvanced ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
                       </button>
                     </div>
 
                     {/* Advanced section */}
                     {isAdvanced && (
-                      <div className="mt-3 space-y-3 rounded-lg p-3" style={{ background: '#13101e', border: '1px solid #2d2848' }}>
+                      <div className="mt-2 space-y-2 rounded-lg p-2.5" style={{ background: '#13101e', border: '1px solid #2d2848' }}>
 
                         {/* AI tools */}
-                        <div>
-                          <p className="text-xs mb-2" style={{ color: '#4b5563' }}>เครื่องมือ AI</p>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleAudit(p)}
-                              disabled={!!auditRunning[p.id]}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold flex-1 justify-center"
-                              style={{
-                                background: '#1a0d00', border: '1px solid rgba(249,115,22,0.67)', color: '#fb923c',
-                                cursor: auditRunning[p.id] ? 'not-allowed' : 'pointer',
-                                opacity: auditRunning[p.id] ? 0.5 : 1,
-                              }}
-                            >
-                              {auditRunning[p.id] ? <Loader2 size={11} className="animate-spin" /> : <Bug size={11} />}
-                              ตรวจสอบโค้ด
-                            </button>
-                            <button
-                              onClick={() => handleN2n(p)}
-                              disabled={!!n2nRunning[p.id]}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold flex-1 justify-center"
-                              style={{
-                                background: '#001a1a', border: '1px solid rgba(6,182,212,0.67)', color: '#22d3ee',
-                                cursor: n2nRunning[p.id] ? 'not-allowed' : 'pointer',
-                                opacity: n2nRunning[p.id] ? 0.5 : 1,
-                              }}
-                            >
-                              {n2nRunning[p.id] ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
-                              แก้ไขอัตโนมัติ
-                            </button>
-                          </div>
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => handleAudit(p)}
+                            disabled={!!auditRunning[p.id]}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg font-semibold flex-1 justify-center"
+                            style={{
+                              background: '#1a0d00', border: '1px solid rgba(249,115,22,0.67)', color: '#fb923c', fontSize: 10,
+                              cursor: auditRunning[p.id] ? 'not-allowed' : 'pointer',
+                              opacity: auditRunning[p.id] ? 0.5 : 1,
+                            }}
+                          >
+                            {auditRunning[p.id] ? <Loader2 size={9} className="animate-spin" /> : <Bug size={9} />}
+                            Audit
+                          </button>
+                          <button
+                            onClick={() => handleN2n(p)}
+                            disabled={!!n2nRunning[p.id]}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg font-semibold flex-1 justify-center"
+                            style={{
+                              background: '#001a1a', border: '1px solid rgba(6,182,212,0.67)', color: '#22d3ee', fontSize: 10,
+                              cursor: n2nRunning[p.id] ? 'not-allowed' : 'pointer',
+                              opacity: n2nRunning[p.id] ? 0.5 : 1,
+                            }}
+                          >
+                            {n2nRunning[p.id] ? <Loader2 size={9} className="animate-spin" /> : <Zap size={9} />}
+                            Fix
+                          </button>
                         </div>
 
                         {/* Docker controls */}
                         {p.docker_compose_path && (
                           <div>
-                            <p className="text-xs mb-2" style={{ color: '#4b5563' }}>Docker</p>
-                            <div className="flex gap-2">
+                            <div className="flex gap-1.5">
                               <button
                                 onClick={() => { const f = p.docker_compose_path ? `-f "${p.docker_compose_path}"` : ''; runDocker(p, `docker compose ${f} up --build -d`) }}
                                 disabled={isBusy || isUp}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold flex-1 justify-center"
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg font-semibold flex-1 justify-center"
                                 style={{
                                   background: isBusy || isUp ? '#0a1a0a' : '#003d1a',
                                   border: '1px solid rgba(0,200,83,0.25)',
-                                  color: isBusy || isUp ? '#374151' : '#00c853',
+                                  color: isBusy || isUp ? '#374151' : '#00c853', fontSize: 10,
                                   cursor: (isBusy || isUp) ? 'not-allowed' : 'pointer',
                                 }}
                               >
-                                {isBusy && !isUp ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
-                                {isUp ? 'รันอยู่' : 'เริ่มต้น'}
+                                {isBusy && !isUp ? <Loader2 size={9} className="animate-spin" /> : <Play size={9} />}
+                                {isUp ? 'Up' : 'Start'}
                               </button>
                               <button
                                 onClick={() => { const f = p.docker_compose_path ? `-f "${p.docker_compose_path}"` : ''; runDocker(p, `docker compose ${f} restart`) }}
                                 disabled={!isUp || isBusy}
-                                title="รีสตาร์ท"
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold justify-center"
+                                title={t('projects_restart_title')}
+                                className="flex items-center justify-center px-2 py-1 rounded-lg font-semibold"
                                 style={{
                                   background: !isUp ? '#0a0a0a' : '#0d1a2e',
                                   border: '1px solid rgba(59,130,246,0.25)',
@@ -1011,36 +1091,36 @@ export default function ProjectsPage() {
                                   cursor: (!isUp || isBusy) ? 'not-allowed' : 'pointer',
                                 }}
                               >
-                                {isBusy && isUp ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                                {isBusy && isUp ? <Loader2 size={9} className="animate-spin" /> : <RotateCcw size={9} />}
                               </button>
                               <button
                                 onClick={() => stopDocker(p)}
                                 disabled={!isUp && !isBusy}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold flex-1 justify-center"
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg font-semibold flex-1 justify-center"
                                 style={{
                                   background: !isUp && !isBusy ? '#0a0a0a' : '#1a0a0a',
                                   border: '1px solid rgba(239,68,68,0.25)',
-                                  color: !isUp && !isBusy ? '#374151' : '#ef4444',
+                                  color: !isUp && !isBusy ? '#374151' : '#ef4444', fontSize: 10,
                                   cursor: (!isUp && !isBusy) ? 'not-allowed' : 'pointer',
                                 }}
                               >
-                                {isBusy && isUp ? <Loader2 size={11} className="animate-spin" /> : <Square size={11} />}
-                                หยุด
+                                {isBusy && isUp ? <Loader2 size={9} className="animate-spin" /> : <Square size={9} />}
+                                Stop
                               </button>
                             </div>
                             {dockerLog[p.id] && (
                               <div
                                 ref={el => { dockerTermRef.current[p.id] = el }}
-                                className="mt-2 rounded-lg p-2 overflow-y-auto"
+                                className="mt-1.5 rounded-lg p-1.5 overflow-y-auto"
                                 style={{
                                   background: '#0d0b14', border: '1px solid #0f1a25',
-                                  fontFamily: 'monospace', fontSize: '10px', color: '#4ade80',
-                                  maxHeight: 120, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                  fontFamily: 'monospace', fontSize: '9px', color: '#4ade80',
+                                  maxHeight: 100, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
                                 }}
                               >
                                 {dockerLog[p.id]}
                                 {dockerRunning[p.id] && (
-                                  <span className="inline-block w-2 h-3 ml-0.5 animate-pulse" style={{ background: '#4ade80' }} />
+                                  <span className="inline-block w-1.5 h-2.5 ml-0.5 animate-pulse" style={{ background: '#4ade80' }} />
                                 )}
                               </div>
                             )}
@@ -1048,29 +1128,27 @@ export default function ProjectsPage() {
                         )}
 
                         {/* Path info */}
-                        <div>
-                          {p.work_dir ? (
-                            <div className="flex items-center gap-1.5 text-xs truncate" style={{ color: '#4b5563' }}>
-                              <CheckCircle size={10} style={{ color: '#16a34a', flexShrink: 0 }} />
-                              <span className="font-mono truncate" title={p.work_dir}>{p.work_dir}</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 text-xs" style={{ color: '#4b5563' }}>
-                              <Circle size={10} style={{ flexShrink: 0 }} />
-                              <span className="italic">ยังไม่ได้ตั้งค่าโฟลเดอร์</span>
-                            </div>
-                          )}
-                        </div>
+                        {p.work_dir ? (
+                          <div className="flex items-center gap-1 truncate" style={{ color: '#4b5563', fontSize: 9 }}>
+                            <CheckCircle size={9} style={{ color: '#16a34a', flexShrink: 0 }} />
+                            <span className="font-mono truncate" title={p.work_dir}>{p.work_dir}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1" style={{ color: '#4b5563', fontSize: 9 }}>
+                            <Circle size={9} style={{ flexShrink: 0 }} />
+                            <span className="italic">{t('projects_no_folder_set')}</span>
+                          </div>
+                        )}
 
                         {/* Delete */}
                         <button
                           onClick={() => handleDelete(p)}
                           disabled={isDeleting}
-                          className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm justify-center transition-colors"
-                          style={{ background: '#1a0a0a', border: '1px solid #3a1515', color: isDeleting ? '#6b7280' : '#ff4d4f' }}
+                          className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg justify-center transition-colors"
+                          style={{ background: '#1a0a0a', border: '1px solid #3a1515', color: isDeleting ? '#6b7280' : '#ff4d4f', fontSize: 10 }}
                         >
-                          {isDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                          {isDeleting ? 'กำลังลบ...' : 'ลบโปรเจกต์นี้'}
+                          {isDeleting ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                          {isDeleting ? t('projects_deleting_btn') : t('projects_delete_btn')}
                         </button>
                       </div>
                     )}
@@ -1083,6 +1161,43 @@ export default function ProjectsPage() {
       )}
 
       {/* ── Set Path Modal (unchanged) ────────────────────────────────────── */}
+      {promptModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.75)' }}
+          onClick={() => setPromptModal(null)}>
+          <div className="rounded-2xl w-full max-w-2xl flex flex-col" style={{ background: '#1c1830', border: '1px solid #2A1622', maxHeight: '80vh' }}
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid #2d2848' }}>
+              <div className="flex items-center gap-2">
+                <ScrollText size={16} style={{ color: '#a78bfa' }} />
+                <div>
+                  <h2 className="text-sm font-bold text-white">Prompt</h2>
+                  <p className="text-xs mt-0.5" style={{ color: '#6b7280' }}>{promptModal.name}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { navigator.clipboard.writeText(promptModal.description || '') }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all hover:brightness-125"
+                  style={{ background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.3)', color: '#a78bfa', fontSize: 12 }}
+                >
+                  <Copy size={12} /> Copy Prompt
+                </button>
+                <button onClick={() => setPromptModal(null)} className="p-1 rounded hover:bg-white/5">
+                  <X size={18} className="text-gray-500" />
+                </button>
+              </div>
+            </div>
+            {/* Body */}
+            <div className="overflow-y-auto px-5 py-4" style={{ flex: 1 }}>
+              <pre className="text-sm leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#e2e8f0', fontFamily: 'inherit' }}>
+                {promptModal.description}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
+
       {pathModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
           <div className="rounded-2xl p-6 w-full max-w-lg space-y-4" style={{ background: '#1c1830', border: '1px solid #2A1622' }}>
@@ -1097,6 +1212,16 @@ export default function ProjectsPage() {
             </div>
 
             <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium text-gray-300 block mb-1.5">{t('projects_name_label')}</label>
+                <input
+                  className="w-full rounded-lg px-3 py-2.5 text-sm text-white"
+                  style={{ background: '#13101e', border: '1px solid #2A1622', outline: 'none' }}
+                  placeholder={t('projects_name_ph')}
+                  value={pathForm.name}
+                  onChange={e => setPathForm(f => ({ ...f, name: e.target.value }))}
+                />
+              </div>
               <div>
                 <label className="text-sm font-medium text-gray-300 block mb-1.5">{t('work_dir_label')}</label>
                 <input
@@ -1121,7 +1246,7 @@ export default function ProjectsPage() {
                 <p className="text-sm font-medium text-gray-400 mb-3">Ports</p>
                 <div className="flex gap-2">
                   <div className="flex-1">
-                    <label className="text-xs text-gray-500 block mb-1">เว็บไซต์ (App Port)</label>
+                    <label className="text-xs text-gray-500 block mb-1">{t('projects_web_port_label')}</label>
                     <input
                       type="number"
                       className="w-full rounded-lg px-3 py-2 text-sm font-mono text-white"
@@ -1132,7 +1257,7 @@ export default function ProjectsPage() {
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="text-xs text-gray-500 block mb-1">จัดการ DB (CloudBeaver)</label>
+                    <label className="text-xs text-gray-500 block mb-1">{t('projects_adminer_port_label')}</label>
                     <input
                       type="number"
                       className="w-full rounded-lg px-3 py-2 text-sm font-mono text-white"
@@ -1145,7 +1270,7 @@ export default function ProjectsPage() {
                 </div>
               </div>
               <div style={{ borderTop: '1px solid #181218', paddingTop: '12px' }}>
-                <p className="text-sm font-medium text-gray-400 mb-3">ข้อมูลฐานข้อมูล</p>
+                <p className="text-sm font-medium text-gray-400 mb-3">{t('projects_db_section')}</p>
                 <div className="flex gap-2">
                   <div className="flex-1">
                     <label className="text-xs text-gray-500 block mb-1">Username</label>
@@ -1169,6 +1294,72 @@ export default function ProjectsPage() {
                   </div>
                 </div>
               </div>
+              <div style={{ borderTop: '1px solid #181218', paddingTop: '12px' }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <p className="text-sm font-medium text-gray-400">Microsoft SSO (Azure AD)</p>
+                  {pathFormFromTemplate.size > 0 && (
+                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.25)', color: '#a78bfa', fontSize: 9 }}>
+                      ✦ {t('projects_from_template_badge')} {pathModal?.template_name}
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs text-gray-500 flex items-center gap-1.5 mb-1">
+                      Tenant ID
+                      {pathFormFromTemplate.has('ms_tenant_id') && <span style={{ fontSize: 8, color: '#a78bfa' }}>✦ template</span>}
+                    </label>
+                    <input
+                      className="w-full rounded-lg px-3 py-2 text-sm font-mono text-white"
+                      style={{ background: '#13101e', border: `1px solid ${pathFormFromTemplate.has('ms_tenant_id') ? 'rgba(167,139,250,0.3)' : '#2A1622'}`, outline: 'none' }}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      value={pathForm.ms_tenant_id}
+                      onChange={e => { setPathForm(f => ({ ...f, ms_tenant_id: e.target.value })); setPathFormFromTemplate(s => { const n = new Set(s); n.delete('ms_tenant_id'); return n }) }}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 flex items-center gap-1.5 mb-1">
+                      Client ID (Application ID)
+                      {pathFormFromTemplate.has('ms_client_id') && <span style={{ fontSize: 8, color: '#a78bfa' }}>✦ template</span>}
+                    </label>
+                    <input
+                      className="w-full rounded-lg px-3 py-2 text-sm font-mono text-white"
+                      style={{ background: '#13101e', border: `1px solid ${pathFormFromTemplate.has('ms_client_id') ? 'rgba(167,139,250,0.3)' : '#2A1622'}`, outline: 'none' }}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      value={pathForm.ms_client_id}
+                      onChange={e => { setPathForm(f => ({ ...f, ms_client_id: e.target.value })); setPathFormFromTemplate(s => { const n = new Set(s); n.delete('ms_client_id'); return n }) }}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 flex items-center gap-1.5 mb-1">
+                      Client Secret
+                      {pathFormFromTemplate.has('ms_client_secret') && <span style={{ fontSize: 8, color: '#a78bfa' }}>✦ template</span>}
+                    </label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type={showProjectSecret ? 'text' : 'password'}
+                        className="w-full rounded-lg px-3 py-2 text-sm font-mono text-white"
+                        style={{ background: '#13101e', border: `1px solid ${pathFormFromTemplate.has('ms_client_secret') ? 'rgba(167,139,250,0.3)' : '#2A1622'}`, outline: 'none', paddingRight: 36 }}
+                        placeholder={pathFormFromTemplate.has('ms_client_secret') ? t('projects_secret_from_template') : t('projects_secret_ph')}
+                        value={pathForm.ms_client_secret}
+                        onChange={e => { setPathForm(f => ({ ...f, ms_client_secret: e.target.value })); setPathFormFromTemplate(s => { const n = new Set(s); n.delete('ms_client_secret'); return n }) }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowProjectSecret(s => !s)}
+                        style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#4b5563', padding: 0, display: 'flex', alignItems: 'center' }}
+                      >
+                        {showProjectSecret ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                  {pathModal?.web_port && (
+                    <div className="rounded-lg px-3 py-2" style={{ background: '#0F0B0D', border: '1px solid #2A1622', fontSize: '10px', color: '#4b5563' }}>
+                      Redirect URI: <span style={{ color: '#00A4EF' }}>http://localhost:{pathModal.web_port}/api/auth/callback/azure-ad</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="flex gap-2 justify-end pt-2">
@@ -1188,6 +1379,285 @@ export default function ProjectsPage() {
                 {saving ? t('saving') : t('save')}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Project Modal ──────────────────────────────────────────── */}
+      {showCreateModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.75)' }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowCreateModal(false); setLaunchResult(null) } }}
+        >
+          <div className="rounded-2xl w-full max-w-xl overflow-hidden" style={{ background: '#1c1830', border: '1px solid #2d2848' }}>
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid #2d2848' }}>
+              <div className="flex items-center gap-2">
+                <Rocket size={16} style={{ color: '#E8365D' }} />
+                <span className="text-base font-bold text-white">{t('projects_create_new_title')}</span>
+              </div>
+              <button
+                onClick={() => { setShowCreateModal(false); setLaunchResult(null) }}
+                className="p-1.5 rounded-lg transition-colors hover:bg-white/5"
+              >
+                <X size={16} style={{ color: '#6b7280' }} />
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div className="p-5 space-y-4">
+              {/* Template picker */}
+              {templates.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <LayoutTemplate size={12} style={{ color: '#a78bfa' }} />
+                    <span className="text-xs font-semibold" style={{ color: '#a78bfa' }}>Template</span>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => setSelectedTemplateId(null)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      style={{
+                        background: selectedTemplateId === null ? 'rgba(167,139,250,0.15)' : '#13101e',
+                        border: `1px solid ${selectedTemplateId === null ? '#a78bfa' : '#2d2848'}`,
+                        color: selectedTemplateId === null ? '#a78bfa' : '#6b7280',
+                      }}
+                    >
+                      {t('projects_no_template')}
+                    </button>
+                    {templates.map(tpl => (
+                      <button
+                        key={tpl.id}
+                        onClick={() => setSelectedTemplateId(id => id === tpl.id ? null : tpl.id)}
+                        title={tpl.description || tpl.tech_stack || ''}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                        style={{
+                          background: selectedTemplateId === tpl.id ? 'rgba(167,139,250,0.15)' : '#13101e',
+                          border: `1px solid ${selectedTemplateId === tpl.id ? '#a78bfa' : '#2d2848'}`,
+                          color: selectedTemplateId === tpl.id ? '#a78bfa' : '#9ca3af',
+                        }}
+                      >
+                        {tpl.name}
+                      </button>
+                    ))}
+                  </div>
+                  {selectedTemplateId && (() => {
+                    const tpl = templates.find(t => t.id === selectedTemplateId)
+                    if (!tpl) return null
+                    return (
+                      <div className="mt-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(167,139,250,0.06)', border: '1px solid rgba(167,139,250,0.2)' }}>
+                        {tpl.description && <p className="text-xs mb-1" style={{ color: '#c4b5fd' }}>{tpl.description}</p>}
+                        {tpl.tech_stack && <p className="text-xs font-mono" style={{ color: '#6b7280' }}>{tpl.tech_stack}</p>}
+                      </div>
+                    )
+                  })()}
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: '#9ca3af' }}>{t('projects_name_label')} <span style={{ color: '#4b5563', fontWeight: 400 }}>{t('projects_name_optional_note')}</span></label>
+                <input
+                  placeholder={t('projects_name_ph_long')}
+                  className="w-full rounded-lg px-3 py-2.5 text-sm text-white"
+                  style={{ background: '#13101e', border: '1px solid #2d2848', outline: 'none' }}
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: '#9ca3af' }}>{t('projects_desc_label')}</label>
+                <textarea
+                  placeholder={t('projects_desc_ph')}
+                  className="w-full rounded-lg px-3 py-2.5 text-sm text-white resize-none"
+                  style={{ background: '#13101e', border: '1px solid #2d2848', outline: 'none', minHeight: 110 }}
+                  value={newDesc}
+                  onChange={e => setNewDesc(e.target.value)}
+                  autoFocus
+                />
+                <p className="text-xs mt-1.5" style={{ color: '#4b5563' }}>{t('projects_secretary_hint')}</p>
+              </div>
+
+              {launchResult && (
+                <div className="px-3 py-2.5 rounded-lg text-sm" style={{
+                  background: launchResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                  color: launchResult.ok ? '#22c55e' : '#ef4444',
+                  border: `1px solid ${launchResult.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                }}>{launchResult.message}</div>
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex items-center justify-end gap-2 px-5 py-4" style={{ borderTop: '1px solid #2d2848' }}>
+              <button
+                onClick={() => { setShowCreateModal(false); setLaunchResult(null) }}
+                className="px-4 py-2 rounded-lg text-sm transition-colors hover:bg-white/5"
+                style={{ color: '#6b7280', border: '1px solid #2d2848' }}
+              >
+                {t('cancel')}
+              </button>
+              <button
+                onClick={launchNewProject}
+                disabled={!newDesc.trim() || launching}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all"
+                style={{
+                  background: newDesc.trim() && !launching ? '#E8365D' : '#2a1520',
+                  color: newDesc.trim() && !launching ? 'white' : '#6b7280',
+                  cursor: !newDesc.trim() || launching ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {launching ? <Loader2 size={13} className="animate-spin" /> : <Rocket size={13} />}
+                {launching ? t('projects_launching') : t('projects_launch_btn')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Ask Agent Modal ──────────────────────────────────────────────────── */}
+      {askModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          style={{ background: 'rgba(0,0,0,0.75)' }}
+          onClick={() => setAskModal(null)}
+        >
+          <div
+            className="w-full sm:max-w-xl flex flex-col rounded-t-2xl sm:rounded-2xl"
+            style={{ background: '#1c1830', border: '1px solid rgba(167,139,250,0.25)', maxHeight: '85vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #2d2848' }}>
+              <MessageSquare size={15} style={{ color: '#a78bfa' }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white">{t('projects_ask_title')}</p>
+                <p className="text-xs truncate" style={{ color: '#6b7280' }}>{askModal.name}</p>
+              </div>
+              {/* Agent selector */}
+              <select
+                value={askSelectedAgent}
+                onChange={e => setAskSelectedAgent(e.target.value)}
+                className="text-xs rounded-lg px-2 py-1 max-w-[140px]"
+                style={{ background: '#13101e', border: '1px solid #2d2848', color: '#c4bfe8', outline: 'none' }}
+              >
+                {askAgents.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {lang === 'EN' && a.name_en ? a.name_en : a.name}
+                  </option>
+                ))}
+              </select>
+              {askChat.length > 0 && (
+                <button
+                  onClick={() => {
+                    setAskChat([])
+                    fetch(`/api/projects/${askModal.id}/chat`, { method: 'DELETE' }).catch(() => {})
+                  }}
+                  className="p-1 rounded hover:bg-white/5 transition-colors"
+                  title={t('projects_ask_clear')}
+                >
+                  <Trash size={13} style={{ color: '#4b5563' }} />
+                </button>
+              )}
+              <button onClick={() => setAskModal(null)} className="p-1 rounded hover:bg-white/5">
+                <X size={16} className="text-gray-500" />
+              </button>
+            </div>
+
+            {/* Chat messages */}
+            <div
+              ref={askChatRef}
+              className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
+              style={{ minHeight: 120, maxHeight: '55vh' }}
+            >
+              {askChat.length === 0 && !askLoading && (
+                <div className="flex flex-col items-center justify-center h-24 gap-2" style={{ color: '#4b5563' }}>
+                  <Bot size={24} />
+                  <p className="text-xs">{t('projects_ask_title')}</p>
+                </div>
+              )}
+              {askChat.map((msg, i) => (
+                <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <div
+                    className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs"
+                    style={{
+                      background: msg.role === 'user' ? '#2d2848' : (msg.agentColor ? `${msg.agentColor}22` : 'rgba(167,139,250,0.15)'),
+                      border: `1px solid ${msg.role === 'user' ? '#3d3860' : (msg.agentColor || 'rgba(167,139,250,0.4)')}`,
+                    }}
+                  >
+                    {msg.role === 'user'
+                      ? <User size={11} style={{ color: '#9ca3af' }} />
+                      : (msg.agentSprite
+                          ? <span style={{ fontSize: 12 }}>{msg.agentSprite}</span>
+                          : <Bot size={11} style={{ color: msg.agentColor || '#a78bfa' }} />
+                        )
+                    }
+                  </div>
+                  <div className="flex flex-col gap-0.5 max-w-[80%]">
+                    <span className="text-xs" style={{ color: '#4b5563' }}>
+                      {msg.role === 'user' ? t('projects_ask_you') : (msg.agentName || 'Agent')}
+                    </span>
+                    <div
+                      className="px-3 py-2 rounded-xl text-xs leading-relaxed whitespace-pre-wrap break-words"
+                      style={{
+                        background: msg.role === 'user' ? '#2d2848' : '#13101e',
+                        border: `1px solid ${msg.role === 'user' ? '#3d3860' : '#1a1a2e'}`,
+                        color: '#e2e8f0',
+                      }}
+                    >
+                      {msg.text}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {askLoading && (
+                <div className="flex gap-2">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.4)' }}>
+                    <Bot size={11} style={{ color: '#a78bfa' }} />
+                  </div>
+                  <div className="px-3 py-2 rounded-xl text-xs" style={{ background: '#13101e', border: '1px solid #1a1a2e', color: '#6b7280' }}>
+                    <Loader2 size={10} className="animate-spin inline mr-1.5" />
+                    {t('projects_ask_thinking')}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input */}
+            <form
+              onSubmit={sendAsk}
+              className="flex items-end gap-2 px-3 py-3 flex-shrink-0"
+              style={{ borderTop: '1px solid #2d2848' }}
+            >
+              <textarea
+                value={askInput}
+                onChange={e => setAskInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAsk() }
+                }}
+                placeholder={t('projects_ask_placeholder')}
+                rows={1}
+                className="flex-1 rounded-xl px-3 py-2 text-sm text-white resize-none"
+                style={{
+                  background: '#13101e', border: '1px solid #2d2848', outline: 'none',
+                  maxHeight: 100, overflowY: 'auto',
+                }}
+                disabled={askLoading}
+              />
+              <button
+                type="submit"
+                disabled={!askInput.trim() || askLoading || !askSelectedAgent}
+                className="flex-shrink-0 p-2 rounded-xl transition-colors"
+                style={{
+                  background: askInput.trim() && !askLoading ? 'rgba(167,139,250,0.2)' : '#13101e',
+                  border: '1px solid rgba(167,139,250,0.3)',
+                  color: askInput.trim() && !askLoading ? '#a78bfa' : '#4b5563',
+                  cursor: !askInput.trim() || askLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <Send size={15} />
+              </button>
+            </form>
           </div>
         </div>
       )}

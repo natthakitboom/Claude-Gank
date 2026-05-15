@@ -49,6 +49,18 @@ export async function GET() {
                OR run.parent_mission_id IN (SELECT id FROM missions WHERE parent_mission_id = p.mission_id))
           AND run.status = 'running')
         + CASE WHEN m.status = 'running' THEN 1 ELSE 0 END as running_tasks_deep,
+      -- current_phase: highest phase that has at least one done/running mission
+      (SELECT MAX(sub2.phase) FROM missions sub2
+        WHERE sub2.parent_mission_id = p.mission_id
+          AND sub2.phase IS NOT NULL
+          AND sub2.status IN ('done','running','pending')
+      ) as current_phase,
+      -- next_phase: lowest phase that is fully waiting (all waiting_phase/waiting)
+      (SELECT MIN(sub3.phase) FROM missions sub3
+        WHERE sub3.parent_mission_id = p.mission_id
+          AND sub3.phase IS NOT NULL
+          AND sub3.status IN ('waiting_phase','waiting')
+      ) as next_phase,
       -- stuck: has waiting/waiting_phase mission whose previous phase is all done (> 5 min ago)
       CASE WHEN EXISTS (
         SELECT 1 FROM missions stk

@@ -26,8 +26,12 @@ export async function POST(request: Request) {
       figma_node_id?: string
       figma_thumbnail_url?: string
       figma_design_context?: string
+      mcp_url?: string
       system_prompt_extra?: string
       tags_json?: string
+      ms_tenant_id?: string
+      ms_client_id?: string
+      ms_client_secret?: string
     }
 
     if (!body.name || !body.name.trim()) {
@@ -38,8 +42,8 @@ export async function POST(request: Request) {
     const id = uuidv4()
     db.prepare(`
       INSERT INTO project_templates
-        (id, name, description, tech_stack, figma_url, figma_node_id, figma_thumbnail_url, figma_design_context, system_prompt_extra, tags_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, name, description, tech_stack, figma_url, figma_node_id, figma_thumbnail_url, figma_design_context, mcp_url, system_prompt_extra, tags_json, ms_tenant_id, ms_client_id, ms_client_secret)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       body.name.trim(),
@@ -49,8 +53,12 @@ export async function POST(request: Request) {
       body.figma_node_id ?? '',
       body.figma_thumbnail_url ?? '',
       body.figma_design_context ?? '',
+      body.mcp_url ?? '',
       body.system_prompt_extra ?? '',
       body.tags_json ?? '[]',
+      body.ms_tenant_id ?? '',
+      body.ms_client_id ?? '',
+      body.ms_client_secret ?? '',
     )
 
     const created = db.prepare('SELECT * FROM project_templates WHERE id = ?').get(id)

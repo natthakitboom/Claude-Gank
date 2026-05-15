@@ -23,7 +23,7 @@ function runCmd(cmd: string, cwd?: string, timeoutMs = 120_000): string {
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const db = getDb()
   const body = await req.json()
-  const { work_dir, docker_compose_path, name, description, db_user, db_password, web_port, adminer_port, demo_accounts_json, rescan_accounts } = body
+  const { work_dir, docker_compose_path, name, description, db_user, db_password, web_port, adminer_port, demo_accounts_json, rescan_accounts, ms_tenant_id, ms_client_id, ms_client_secret } = body
 
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(params.id) as any
   if (!project) return NextResponse.json({ error: 'not found' }, { status: 404 })
@@ -91,6 +91,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   ensureColumn(db, 'projects', 'demo_accounts_json', 'TEXT')
+  ensureColumn(db, 'projects', 'ms_tenant_id',      "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'projects', 'ms_client_id',      "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'projects', 'ms_client_secret',  "TEXT NOT NULL DEFAULT ''")
 
   db.prepare(`
     UPDATE projects SET
@@ -102,13 +105,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       db_password = COALESCE(?, db_password),
       web_port = COALESCE(?, web_port),
       adminer_port = COALESCE(?, adminer_port),
-      demo_accounts_json = COALESCE(?, demo_accounts_json)
+      demo_accounts_json = COALESCE(?, demo_accounts_json),
+      ms_tenant_id = COALESCE(?, ms_tenant_id),
+      ms_client_id = COALESCE(?, ms_client_id),
+      ms_client_secret = COALESCE(?, ms_client_secret)
     WHERE id = ?
   `).run(
     work_dir ?? null, docker_compose_path ?? null, name ?? null, description ?? null,
     db_user ?? null, db_password ?? null,
     web_port ? Number(web_port) : null, adminer_port ? Number(adminer_port) : null,
     demo_accounts_json ?? null,
+    ms_tenant_id ?? null, ms_client_id ?? null, ms_client_secret ?? null,
     params.id
   )
 

@@ -61,6 +61,9 @@ export async function GET() {
       jira_api_token: undefined,
       figma_configured: !!(row?.figma_access_token),
       figma_access_token: undefined,
+      ms_sso_configured: !!(row?.ms_client_id && row?.ms_client_secret),
+      ms_client_secret: undefined,
+      ms_sso_env_enabled: process.env.MS_SSO_ENABLED === '1',
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
@@ -138,6 +141,29 @@ export async function POST(req: Request) {
       }
     }
 
+    // Handle Microsoft SSO config save
+    if ('ms_tenant_id' in body || 'ms_client_id' in body) {
+      const tenantId = ((body.ms_tenant_id as string) || '').trim()
+      const clientId = ((body.ms_client_id as string) || '').trim()
+      const clientSecret = ((body.ms_client_secret as string) || '').trim()
+
+      db.prepare(
+        `UPDATE system_config SET ms_tenant_id = ?, ms_client_id = ?, ms_client_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'default'`
+      ).run(tenantId, clientId, clientSecret)
+
+      if (!clientId && !clientSecret) return NextResponse.json({ ok: true, cleared: true })
+      return NextResponse.json({ ok: true, message: 'บันทึกแล้ว — restart server เพื่อให้ SSO มีผล' })
+    }
+
+    // Handle Microsoft SSO enabled toggle
+    if ('ms_sso_enabled' in body) {
+      const enabled = body.ms_sso_enabled ? 1 : 0
+      db.prepare(
+        `UPDATE system_config SET ms_sso_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'default'`
+      ).run(enabled)
+      return NextResponse.json({ ok: true, ms_sso_enabled: enabled })
+    }
+
     // Handle ollama config save
     if ('ollama_base_url' in body) {
       const url = (body.ollama_base_url as string).trim().replace(/\/$/, '')
@@ -153,6 +179,16 @@ export async function POST(req: Request) {
       } catch (e: any) {
         return NextResponse.json({ ok: false, error: `Cannot reach Ollama at ${url} — is it running?` })
       }
+    }
+
+    // Handle projects base path save
+    if ('projects_base_path' in body) {
+      const p = (body.projects_base_path as string || '').trim().replace(/\/$/, '')
+      db.prepare(`UPDATE system_config SET projects_base_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 'default'`).run(p)
+      if (!p) return NextResponse.json({ ok: true, cleared: true })
+      // Validate path exists
+      if (!fs.existsSync(p)) return NextResponse.json({ ok: false, error: `Path not found: ${p}` })
+      return NextResponse.json({ ok: true, path: p })
     }
 
     // Handle claude CLI path save

@@ -249,6 +249,11 @@ function initializeSchema(db: Database.Database) {
   ensureColumn(db, 'system_config', 'jira_email',          "TEXT NOT NULL DEFAULT ''")
   ensureColumn(db, 'system_config', 'jira_api_token',      "TEXT NOT NULL DEFAULT ''")
   ensureColumn(db, 'system_config', 'figma_access_token',  "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'ms_tenant_id',        "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'ms_client_id',        "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'ms_client_secret',    "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'system_config', 'ms_sso_enabled',      "INTEGER NOT NULL DEFAULT 0")
+  ensureColumn(db, 'system_config', 'projects_base_path',   "TEXT NOT NULL DEFAULT ''")
 
   // project_templates table — reusable project blueprints with optional Figma context
   db.exec(`
@@ -756,6 +761,14 @@ function initializeSchema(db: Database.Database) {
   ensureColumn(db, 'projects', 'adminer_port',              'INTEGER')
   ensureColumn(db, 'projects', 'template_id',               'TEXT')
   ensureColumn(db, 'projects', 'template_name',             'TEXT')
+  ensureColumn(db, 'projects', 'ms_tenant_id',              "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'projects', 'ms_client_id',              "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'projects', 'ms_client_secret',          "TEXT NOT NULL DEFAULT ''")
+  // project_templates new columns
+  ensureColumn(db, 'project_templates', 'mcp_url',          "TEXT DEFAULT ''")
+  ensureColumn(db, 'project_templates', 'ms_tenant_id',     "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'project_templates', 'ms_client_id',     "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(db, 'project_templates', 'ms_client_secret', "TEXT NOT NULL DEFAULT ''")
   // IDE chat history
   try { db.exec(`
     CREATE TABLE IF NOT EXISTS ide_chat_messages (

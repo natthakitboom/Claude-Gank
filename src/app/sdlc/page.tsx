@@ -84,13 +84,13 @@ export default function SDLCPage() {
   }
 
   if (loading || !config) return (
-    <div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin mr-2 text-gray-600" size={16} /><span className="font-mono text-xs text-gray-600">Loading SDLC config…</span></div>
+    <div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin mr-2 text-gray-600" size={16} /><span className="font-mono text-xs text-gray-600">{t('sdlc_loading')}</span></div>
   )
 
   const tabs = [
-    { key: 'pipeline', label: 'PIPELINE', icon: <GitBranch size={11} /> },
-    { key: 'quality', label: 'QUALITY GATES', icon: <ShieldCheck size={11} /> },
-    { key: 'engine', label: 'ENGINE & RULES', icon: <Activity size={11} /> },
+    { key: 'pipeline', label: t('sdlc_tab_pipeline'), icon: <GitBranch size={11} /> },
+    { key: 'quality', label: t('sdlc_tab_quality'), icon: <ShieldCheck size={11} /> },
+    { key: 'engine', label: t('sdlc_tab_engine'), icon: <Activity size={11} /> },
   ] as const
 
   return (
@@ -107,9 +107,9 @@ export default function SDLCPage() {
             <p className="font-orbitron mt-0.5" style={{ fontSize: '8px', color: '#374151', letterSpacing: '0.1em' }}>// {config.description}</p>
           </div>
           <div className="flex items-center gap-2">
-            {dirty && <button onClick={resetConfig} className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-orbitron" style={{ background: '#0F0B0D', border: '1px solid #2A1622', color: '#64748b', fontSize: '9px' }}><RotateCcw size={10} /> RESET</button>}
+            {dirty && <button onClick={resetConfig} className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-orbitron" style={{ background: '#0F0B0D', border: '1px solid #2A1622', color: '#64748b', fontSize: '9px' }}><RotateCcw size={10} /> {t('sdlc_reset_btn')}</button>}
             <button onClick={saveConfig} disabled={!dirty || saving} className="flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-orbitron font-semibold disabled:opacity-40" style={{ background: dirty ? 'linear-gradient(135deg,#0066ff,#E8365D)' : '#0F0B0D', color: dirty ? 'white' : '#374151', border: `1px solid ${dirty ? '#E8365D44' : '#2A1622'}`, fontSize: '9px' }}>
-              {saving ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />} {saving ? 'SAVING…' : 'SAVE'}
+              {saving ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />} {saving ? t('sdlc_saving') : t('sdlc_save_btn')}
             </button>
           </div>
         </div>
@@ -131,7 +131,7 @@ export default function SDLCPage() {
           <>
             {/* Flow Overview */}
             <div className="rounded-xl p-4" style={{ background: '#0a0e14', border: '1px solid #181218' }}>
-              <div className="font-orbitron text-xs font-bold mb-3" style={{ color: '#374151', fontSize: '9px', letterSpacing: '0.1em' }}>PIPELINE FLOW</div>
+              <div className="font-orbitron text-xs font-bold mb-3" style={{ color: '#374151', fontSize: '9px', letterSpacing: '0.1em' }}>{t('sdlc_pipeline_flow')}</div>
               <div className="flex items-start gap-0 overflow-x-auto pb-2">
                 <FlowNode icon={config.entry.icon} label={config.entry.label} sublabel="project_id + trace_id" color="#E8365D"
                   onClick={() => setEditingSection(editingSection === 'entry' ? null : 'entry')} isActive={editingSection === 'entry'} />
@@ -168,8 +168,8 @@ export default function SDLCPage() {
             {/* Phases */}
             <div className="rounded-xl overflow-hidden" style={{ background: '#0a0e14', border: '1px solid #181218' }}>
               <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '1px solid #181218' }}>
-                <div className="font-orbitron text-xs font-bold" style={{ color: '#374151', fontSize: '9px', letterSpacing: '0.1em' }}>PHASES ({config.phases.length})</div>
-                <button onClick={addPhase} className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-orbitron" style={{ background: '#001a40', border: '1px solid #0066ff44', color: '#60a5fa', fontSize: '8px' }}><Plus size={10} /> ADD PHASE</button>
+                <div className="font-orbitron text-xs font-bold" style={{ color: '#374151', fontSize: '9px', letterSpacing: '0.1em' }}>{t('sdlc_phases_label')} ({config.phases.length})</div>
+                <button onClick={addPhase} className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-orbitron" style={{ background: '#001a40', border: '1px solid #0066ff44', color: '#60a5fa', fontSize: '8px' }}><Plus size={10} /> {t('sdlc_add_phase')}</button>
               </div>
               <div className="divide-y" style={{ borderColor: '#181218' }}>
                 {config.phases.map((phase, idx) => {

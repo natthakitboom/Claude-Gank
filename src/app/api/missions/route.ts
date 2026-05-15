@@ -24,10 +24,10 @@ export async function GET(request: Request) {
         const stuck = db.prepare(`
           UPDATE missions
           SET status = 'failed',
-              error  = 'Mission timed out (stuck in running > 10 minutes)'
+              error  = 'Mission timed out (stuck in running > 40 minutes)'
           WHERE status = 'running'
             AND started_at IS NOT NULL
-            AND datetime(started_at) < datetime('now', '-10 minutes')
+            AND datetime(started_at) < datetime('now', '-40 minutes')
         `).run()
         if (stuck.changes > 0) {
           console.log(`[watchdog] ⏱️ Reset ${stuck.changes} mission(s) stuck > 10 min`)
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
       // 2. Phase orphan rescue — find waiting_phase/waiting/pending(not started) missions whose entire previous phase is done/failed
       //    Happens when server restart kills running missions and advanceProjectPhase never fires
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 9001}`
         const orphaned = db.prepare(`
           SELECT m.id, m.title, m.phase, m.parent_mission_id
           FROM missions m
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
 
       // 3. Auto-loop fix watchdog — projects with all sub-missions done/failed but no AUTO-FIX running
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 9001}`
         // Find parent missions whose sub-missions are ALL done/failed, have at least 1 failed,
         // and no AUTO-FIX or RETRY mission is currently pending/running
         const stuckProjects = db.prepare(`
@@ -105,7 +105,7 @@ export async function GET(request: Request) {
     }
 
     let query = `
-      SELECT m.*, a.name as agent_name, a.sprite as agent_sprite, a.color as agent_color, a.team as agent_team
+      SELECT m.*, a.name as agent_name, a.name_en as agent_name_en, a.sprite as agent_sprite, a.color as agent_color, a.team as agent_team
       FROM missions m
       JOIN agents a ON m.agent_id = a.id
       WHERE 1=1
@@ -116,7 +116,10 @@ export async function GET(request: Request) {
       query += ' AND m.agent_id = ?'
       params.push(agentId)
     }
-    if (status) {
+    if (status === 'running') {
+      // Include pending+started_at missions — they're executing but DB status got confused
+      query += " AND (m.status = 'running' OR (m.status = 'pending' AND m.started_at IS NOT NULL))"
+    } else if (status) {
       query += ' AND m.status = ?'
       params.push(status)
     }
@@ -155,13 +158,13 @@ export async function POST(request: Request) {
     `).run(id, body.title, body.description, body.agent_id, body.priority || 'normal', body.scheduled_at || null, body.parent_mission_id || null, body.phase ?? null)
 
     const mission = db.prepare(`
-      SELECT m.*, a.name as agent_name, a.sprite as agent_sprite, a.color as agent_color
+      SELECT m.*, a.name as agent_name, a.name_en as agent_name_en, a.sprite as agent_sprite, a.color as agent_color
       FROM missions m JOIN agents a ON m.agent_id = a.id WHERE m.id = ?
     `).get(id)
 
     // auto_run: true → fire execute immediately in background (fire-and-forget)
     if (body.auto_run) {
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 9001}`
       fetch(`${baseUrl}/api/missions/${id}/execute`, { method: 'POST' }).catch((e) => console.error('[auto_run] spawn failed for mission', id, e.message))
     }
 
